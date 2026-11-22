@@ -79,7 +79,7 @@ jobs:
           flutter build apk --release --flavor nightly
           cp build/app/outputs/flutter-apk/app-nightly-release.apk butterfly-saber-fusion-android-universal.apk
       - name: Upload Android APK artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: saber-fusion-android-apk
           path: |
@@ -124,7 +124,7 @@ jobs:
           }
           Compress-Archive -Path "$releaseDir/*" -DestinationPath "butterfly-saber-fusion-windows-x64.zip" -Force
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: saber-fusion-windows-x64
           path: app/butterfly-saber-fusion-windows-x64.zip
