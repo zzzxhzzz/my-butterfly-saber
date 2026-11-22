@@ -1391,8 +1391,14 @@ void main() {
     final assetService = _FailingPdfDataAssetService();
     final data = NoteData(Archive());
 
-    expect(await assetService.getPdfDocument('test.pdf', data), isNull);
-    expect(await assetService.getPdfDocument('test.pdf', data), isNull);
+    expect(
+      await assetService.getPdfDocument('data:application/pdf;base64,', data),
+      isNull,
+    );
+    expect(
+      await assetService.getPdfDocument('data:application/pdf;base64,', data),
+      isNull,
+    );
 
     expect(assetService.pdfLoads, 2);
   });

@@ -471,57 +471,6 @@ class _ImportPagesDialogState extends State<ImportPagesDialog> {
       child: Column(
         crossAxisAlignment: .stretch,
         children: [
-          Text(
-            '教材 / 试卷快速预设',
-            style: TextTheme.of(context).titleSmall,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              ChoiceChip(
-                label: const Text('原样导入'),
-                selected:
-                    _draftMarginRightPercent == 0 &&
-                    _draftMarginBottomPercent == 0 &&
-                    _pageGap == 0,
-                onSelected: (_) => _applyStudyPreset(
-                  rightMargin: 0,
-                  bottomMargin: 0,
-                  gap: 0,
-                  spread: _spreadToPages,
-                ),
-              ),
-              ChoiceChip(
-                label: const Text('刷卷模式(+右侧草稿区)'),
-                selected:
-                    !_spreadToPages &&
-                    _draftMarginRightPercent == 50 &&
-                    _draftMarginBottomPercent == 15,
-                onSelected: (_) => _applyStudyPreset(
-                  rightMargin: 50,
-                  bottomMargin: 15,
-                  gap: 48,
-                  spread: false,
-                ),
-              ),
-              ChoiceChip(
-                label: const Text('厚教材模式(分页+笔记栏)'),
-                selected:
-                    _spreadToPages &&
-                    _draftMarginRightPercent == 35 &&
-                    _draftMarginBottomPercent == 0,
-                onSelected: (_) => _applyStudyPreset(
-                  rightMargin: 35,
-                  bottomMargin: 0,
-                  gap: 0,
-                  spread: true,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           ExactSlider(
             header: Text(loc.pdfScale, style: TextTheme.of(context).titleSmall),
             label: '%',
@@ -602,6 +551,59 @@ class _ImportPagesDialogState extends State<ImportPagesDialog> {
               ),
             ],
           ),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          Text(
+            '教材 / 试卷快速预设',
+            style: TextTheme.of(context).titleSmall,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              ChoiceChip(
+                label: const Text('原样导入'),
+                selected:
+                    _draftMarginRightPercent == 0 &&
+                    _draftMarginBottomPercent == 0 &&
+                    _pageGap == 0,
+                onSelected: (_) => _applyStudyPreset(
+                  rightMargin: 0,
+                  bottomMargin: 0,
+                  gap: 0,
+                  spread: _spreadToPages,
+                ),
+              ),
+              ChoiceChip(
+                label: const Text('刷卷模式(+右侧草稿区)'),
+                selected:
+                    !_spreadToPages &&
+                    _draftMarginRightPercent == 50 &&
+                    _draftMarginBottomPercent == 15,
+                onSelected: (_) => _applyStudyPreset(
+                  rightMargin: 50,
+                  bottomMargin: 15,
+                  gap: 48,
+                  spread: false,
+                ),
+              ),
+              ChoiceChip(
+                label: const Text('厚教材模式(分页+笔记栏)'),
+                selected:
+                    _spreadToPages &&
+                    _draftMarginRightPercent == 35 &&
+                    _draftMarginBottomPercent == 0,
+                onSelected: (_) => _applyStudyPreset(
+                  rightMargin: 35,
+                  bottomMargin: 0,
+                  gap: 0,
+                  spread: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           const Divider(height: 1),
           ExpansionTile(
             tilePadding: .zero,
