@@ -22,7 +22,7 @@ jobs:
         working-directory: app
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -45,7 +45,7 @@ jobs:
         working-directory: app
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -94,7 +94,7 @@ jobs:
         working-directory: app
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
