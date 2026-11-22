@@ -27,6 +27,7 @@ import 'package:keybinder/keybinder.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 
 import 'cubits/settings.dart';
+import 'saber_fusion/study_state.dart';
 import 'embed/embedding.dart';
 import 'settings/home.dart';
 import 'setup.dart' if (dart.library.js_interop) 'setup_web.dart';
@@ -338,6 +339,9 @@ class ButterflyApp extends StatelessWidget {
           ),
           BlocProvider(
             create: (context) => WindowCubit(fullScreen: fullScreen),
+          ),
+          BlocProvider(
+            create: (context) => StudyModeCubit()..load(),
           ),
         ],
         child: _buildApp(lightDynamic, darkDynamic),

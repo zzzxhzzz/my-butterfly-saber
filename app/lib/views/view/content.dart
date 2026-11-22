@@ -50,6 +50,7 @@ class _LoadedViewport extends StatelessWidget {
     required this.touchBottom,
     required this.input,
     required this.canvasKey,
+    this.canvasCaptureKey,
     required this.bake,
     required this.delayBake,
   });
@@ -60,6 +61,7 @@ class _LoadedViewport extends StatelessWidget {
   final double touchBottom;
   final _ViewportInputCoordinator input;
   final GlobalKey<_ViewportCanvasState> canvasKey;
+  final GlobalKey? canvasCaptureKey;
   final VoidCallback bake;
   final VoidCallback delayBake;
 
@@ -164,6 +166,7 @@ class _LoadedViewport extends StatelessWidget {
         children: [
           _ViewportCanvas(
             key: canvasKey,
+            canvasCaptureKey: canvasCaptureKey,
             rendererState: rendererState,
             documentState: state,
             delayBake: delayBake,

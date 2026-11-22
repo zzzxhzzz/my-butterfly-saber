@@ -3,11 +3,13 @@ part of '../view.dart';
 class _ViewportCanvas extends StatefulWidget {
   const _ViewportCanvas({
     super.key,
+    this.canvasCaptureKey,
     required this.rendererState,
     required this.documentState,
     required this.delayBake,
   });
 
+  final GlobalKey? canvasCaptureKey;
   final RendererRuntimeState rendererState;
   final DocumentLoaded documentState;
   final VoidCallback delayBake;
@@ -101,7 +103,73 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
   @override
   Widget build(BuildContext context) {
     final state = widget.documentState;
-    return BlocListener<TransformCubit, CameraTransform>(
+    final studyCubit = maybeStudyModeCubit(context);
+    if (studyCubit != null) {
+      context.read<RendererCubit>().perfectHighlighter =
+          studyCubit.state.perfectHighlighter;
+    }
+
+    Widget buildCanvas({
+      required CameraTransform visibleTransform,
+      required bool perfectHighlighter,
+    }) {
+      return RepaintBoundary(
+        key: widget.canvasCaptureKey,
+        child: Stack(
+          children: [
+            Container(color: ColorScheme.of(context).surfaceDim),
+            RepaintBoundary(
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: ViewPainter(
+                  state.data,
+                  state.page,
+                  state.info,
+                  repaint: context.read<RendererCubit>().repaint,
+                  cameraViewport: widget.rendererState.cameraViewport,
+                  transform: visibleTransform,
+                  invisibleLayers: state.invisibleLayers,
+                  currentArea: state.currentArea,
+                  colorScheme: ColorScheme.of(context),
+                  perfectHighlighter: perfectHighlighter,
+                ),
+                isComplex: true,
+              ),
+            ),
+            BlocBuilder<ToolCubit, ToolRuntimeState>(
+              buildWhen: (previous, current) =>
+                  previous.foregrounds != current.foregrounds ||
+                  previous.temporaryForegrounds !=
+                      current.temporaryForegrounds ||
+                  previous.toggleableForegrounds !=
+                      current.toggleableForegrounds ||
+                  previous.networkingForegrounds !=
+                      current.networkingForegrounds ||
+                  previous.selection != current.selection,
+              builder: (context, toolState) => RepaintBoundary(
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: ForegroundPainter(
+                    toolState.getAllForegrounds(),
+                    state.data,
+                    state.page,
+                    state.info,
+                    ColorScheme.of(context),
+                    visibleTransform,
+                    toolState.selection,
+                    state.settingsCubit.state.navigatorPosition,
+                    perfectHighlighter,
+                  ),
+                  willChange: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final child = BlocListener<TransformCubit, CameraTransform>(
       listenWhen: (previous, current) =>
           previous.friction?.lastUpdate != current.friction?.lastUpdate,
       listener: (_, transform) => _handleSlideAnimation(transform),
@@ -110,58 +178,43 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
           animation: _animationController,
           builder: (context, _) {
             final visibleTransform = _visibleTransform(transform);
-            return Stack(
-              children: [
-                Container(color: ColorScheme.of(context).surfaceDim),
-                RepaintBoundary(
-                  child: CustomPaint(
-                    size: Size.infinite,
-                    painter: ViewPainter(
-                      state.data,
-                      state.page,
-                      state.info,
-                      repaint: context.read<RendererCubit>().repaint,
-                      cameraViewport: widget.rendererState.cameraViewport,
-                      transform: visibleTransform,
-                      invisibleLayers: state.invisibleLayers,
-                      currentArea: state.currentArea,
-                      colorScheme: ColorScheme.of(context),
-                    ),
-                    isComplex: true,
-                  ),
-                ),
-                BlocBuilder<ToolCubit, ToolRuntimeState>(
-                  buildWhen: (previous, current) =>
-                      previous.foregrounds != current.foregrounds ||
-                      previous.temporaryForegrounds !=
-                          current.temporaryForegrounds ||
-                      previous.toggleableForegrounds !=
-                          current.toggleableForegrounds ||
-                      previous.networkingForegrounds !=
-                          current.networkingForegrounds ||
-                      previous.selection != current.selection,
-                  builder: (context, toolState) => RepaintBoundary(
-                    child: CustomPaint(
-                      size: Size.infinite,
-                      painter: ForegroundPainter(
-                        toolState.getAllForegrounds(),
-                        state.data,
-                        state.page,
-                        state.info,
-                        ColorScheme.of(context),
-                        visibleTransform,
-                        toolState.selection,
-                        state.settingsCubit.state.navigatorPosition,
-                      ),
-                      willChange: true,
-                    ),
-                  ),
-                ),
-              ],
+            if (studyCubit == null) {
+              return buildCanvas(
+                visibleTransform: visibleTransform,
+                perfectHighlighter: true,
+              );
+            }
+            return BlocBuilder<StudyModeCubit, StudyModeState>(
+              bloc: studyCubit,
+              buildWhen: (previous, current) =>
+                  previous.colorMode != current.colorMode ||
+                  previous.perfectHighlighter != current.perfectHighlighter,
+              builder: (context, studyState) {
+                final canvas = buildCanvas(
+                  visibleTransform: visibleTransform,
+                  perfectHighlighter: studyState.perfectHighlighter,
+                );
+                final filter = canvasColorFilterFor(studyState.colorMode);
+                if (filter == null) return canvas;
+                return ColorFiltered(colorFilter: filter, child: canvas);
+              },
             );
           },
         ),
       ),
+    );
+
+    if (studyCubit == null) return child;
+    return BlocListener<StudyModeCubit, StudyModeState>(
+      bloc: studyCubit,
+      listenWhen: (previous, current) =>
+          previous.perfectHighlighter != current.perfectHighlighter,
+      listener: (context, studyState) {
+        context.read<RendererCubit>().perfectHighlighter =
+            studyState.perfectHighlighter;
+        unawaited(context.read<DocumentBloc>().bake(reset: true));
+      },
+      child: child,
     );
   }
 }

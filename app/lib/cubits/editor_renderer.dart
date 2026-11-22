@@ -133,6 +133,7 @@ class RendererCubit(
   List<Renderer<PadElement>>? _indexedRenderers;
   Set<Renderer<PadElement>>? _indexedUnbaked;
   bool _useDirectRendering = kIsWeb && !kIsWasm;
+  bool perfectHighlighter = true;
 
   @visibleForTesting
   void enableDirectRendering() => _useDirectRendering = true;
@@ -712,6 +713,7 @@ class RendererCubit(
         renderBackground: false,
         renderBaked: false,
         renderBakedLayers: false,
+        perfectHighlighter: perfectHighlighter,
         invisibleLayers: invisibleLayers,
       ).paint(canvas, size);
 
@@ -774,6 +776,7 @@ class RendererCubit(
           ),
           renderBackground: false,
           renderBaked: false,
+          perfectHighlighter: perfectHighlighter,
           invisibleLayers: invisibleLayers,
         ).paint(canvas, size);
         final picture = recorder.endRecording();
@@ -931,6 +934,7 @@ class RendererCubit(
         page,
         info,
         renderBackground: options.renderBackground,
+        perfectHighlighter: perfectHighlighter,
         invisibleLayers: invisibleLayers,
         cameraViewport: viewport,
         transform: transform,

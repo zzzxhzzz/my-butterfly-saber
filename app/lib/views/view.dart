@@ -20,6 +20,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:synchronized/synchronized.dart';
 
+import 'package:butterfly/saber_fusion/color_filters.dart';
+import 'package:butterfly/saber_fusion/study_state.dart';
+
 import '../view_painter.dart';
 
 part 'view/canvas.dart';
@@ -27,9 +30,14 @@ part 'view/content.dart';
 part 'view/input.dart';
 
 class MainViewViewport extends StatefulWidget {
-  const MainViewViewport({super.key, this.reserveBottomSystemGestures = false});
+  const MainViewViewport({
+    super.key,
+    this.reserveBottomSystemGestures = false,
+    this.canvasCaptureKey,
+  });
 
   final bool reserveBottomSystemGestures;
+  final GlobalKey? canvasCaptureKey;
 
   @override
   MainViewViewportState createState() => MainViewViewportState();
@@ -155,6 +163,7 @@ class MainViewViewportState extends State<MainViewViewport>
                   touchBottom: touchBottom,
                   input: _input,
                   canvasKey: _canvasKey,
+                  canvasCaptureKey: widget.canvasCaptureKey,
                   bake: () => _scheduleInitialBake(viewportSize),
                   delayBake: () => _delayBake(viewportSize),
                 );

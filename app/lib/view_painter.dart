@@ -11,6 +11,14 @@ import 'package:material_leap/material_leap.dart';
 import 'cubits/transform.dart';
 import 'selections/selection.dart';
 
+bool isPerfectHighlighterStroke(PenRenderer renderer) {
+  final property = renderer.element.property;
+  final strokeAlpha = property.paint.previewColor.a;
+  return strokeAlpha > 0 &&
+      strokeAlpha < 235 &&
+      property.fillPaint.previewColor.a == 0;
+}
+
 void _paintRenderer(
   Canvas canvas,
   Size size,
@@ -22,10 +30,15 @@ void _paintRenderer(
   Renderer renderer, {
   bool foreground = false,
   bool combined = false,
+  bool perfectHighlighter = true,
 }) {
   final transformed = renderer.transformCanvas(canvas);
   if (combined && renderer is PenRenderer) {
     renderer.buildCombined(canvas);
+  } else if (perfectHighlighter &&
+      renderer is PenRenderer &&
+      isPerfectHighlighterStroke(renderer)) {
+    renderer.buildWithOptions(canvas, perfectHighlighter: true);
   } else {
     renderer.build(
       canvas,
@@ -67,6 +80,7 @@ void _paintRenderers(
   ColorScheme? colorScheme,
   Iterable<Renderer> renderers, {
   bool foreground = false,
+  bool perfectHighlighter = true,
 }) {
   final rendererList = renderers is List<Renderer>
       ? renderers
@@ -90,6 +104,7 @@ void _paintRenderers(
         colorScheme,
         renderer,
         foreground: foreground,
+        perfectHighlighter: perfectHighlighter,
       );
     }
     return;
@@ -110,6 +125,7 @@ void _paintRenderers(
         colorScheme,
         renderer,
         foreground: foreground,
+        perfectHighlighter: perfectHighlighter,
       );
       continue;
     }
@@ -126,10 +142,16 @@ void _paintRenderers(
         colorScheme,
         group.first,
         foreground: foreground,
+        perfectHighlighter: perfectHighlighter,
       );
       continue;
     }
-    canvas.saveLayer(_groupBounds(group), Paint());
+    final useMultiplyLayer =
+        perfectHighlighter && group.any(isPerfectHighlighterStroke);
+    canvas.saveLayer(
+      _groupBounds(group),
+      useMultiplyLayer ? (Paint()..blendMode = BlendMode.multiply) : Paint(),
+    );
     for (final groupedRenderer in group) {
       _paintRenderer(
         canvas,
@@ -142,6 +164,7 @@ void _paintRenderers(
         groupedRenderer,
         foreground: foreground,
         combined: true,
+        perfectHighlighter: perfectHighlighter,
       );
     }
     canvas.restore();
@@ -157,6 +180,7 @@ class ForegroundPainter extends CustomPainter {
   final CameraTransform transform;
   final Selection? selection;
   final NavigatorPosition navigatorPosition;
+  final bool perfectHighlighter;
 
   ForegroundPainter(
     this.renderers,
@@ -167,6 +191,7 @@ class ForegroundPainter extends CustomPainter {
     this.transform = const CameraTransform(),
     this.selection,
     this.navigatorPosition = .left,
+    this.perfectHighlighter = true,
   ]);
 
   @override
@@ -184,6 +209,7 @@ class ForegroundPainter extends CustomPainter {
       colorScheme,
       renderers,
       foreground: true,
+      perfectHighlighter: perfectHighlighter,
     );
     if (sel is ElementSelection) {
       _drawSelection(canvas, size, sel);
@@ -216,7 +242,8 @@ class ForegroundPainter extends CustomPainter {
       oldDelegate.renderers != renderers ||
       oldDelegate.transform != transform ||
       oldDelegate.selection != selection ||
-      oldDelegate.colorScheme != colorScheme;
+      oldDelegate.colorScheme != colorScheme ||
+      oldDelegate.perfectHighlighter != perfectHighlighter;
 }
 
 class ViewPainter extends CustomPainter {
@@ -224,7 +251,10 @@ class ViewPainter extends CustomPainter {
   final DocumentPage page;
   final DocumentInfo info;
   final Area? currentArea;
-  final bool renderBackground, renderBaked, renderBakedLayers;
+  final bool renderBackground,
+      renderBaked,
+      renderBakedLayers,
+      perfectHighlighter;
   final CameraViewport cameraViewport;
   final CameraTransform transform;
   final ColorScheme? colorScheme;
@@ -240,6 +270,7 @@ class ViewPainter extends CustomPainter {
     this.renderBackground = true,
     this.renderBaked = true,
     this.renderBakedLayers = true,
+    this.perfectHighlighter = true,
     required this.cameraViewport,
     this.colorScheme,
     this.transform = const CameraTransform(),
@@ -327,6 +358,7 @@ class ViewPainter extends CustomPainter {
       transform,
       colorScheme,
       renderers,
+      perfectHighlighter: perfectHighlighter,
     );
     final aboveLayerImage = cameraViewport.aboveLayerImage;
     if (renderBakedLayers && aboveLayerImage != null) {
@@ -354,6 +386,7 @@ class ViewPainter extends CustomPainter {
         renderBackground != oldDelegate.renderBackground ||
         renderBaked != oldDelegate.renderBaked ||
         renderBakedLayers != oldDelegate.renderBakedLayers ||
+        perfectHighlighter != oldDelegate.perfectHighlighter ||
         transform != oldDelegate.transform ||
         !identical(cameraViewport, oldDelegate.cameraViewport) ||
         (!identical(invisibleLayers, oldDelegate.invisibleLayers) &&

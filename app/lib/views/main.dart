@@ -12,6 +12,10 @@ import 'package:butterfly/cubits/transform.dart';
 import 'package:butterfly/embed/embedding.dart';
 import 'package:butterfly/embed/view_state.dart';
 import 'package:butterfly/models/defaults.dart';
+import 'package:butterfly/saber_fusion/canvas_snip_overlay.dart';
+import 'package:butterfly/saber_fusion/pdf_study_panel.dart';
+import 'package:butterfly/saber_fusion/study_state.dart';
+import 'package:butterfly/saber_fusion/study_toolbar.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:butterfly/renderers/renderer.dart';
 import 'package:butterfly/services/document_state.dart';
@@ -129,6 +133,8 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
   final SearchController _searchController = .new();
   late final CloseSubscription _closeSubscription;
   final GlobalKey<MainViewViewportState> _viewportKey = GlobalKey();
+  final GlobalKey _canvasCaptureKey = GlobalKey();
+  StudyModeCubit? _fallbackStudyCubit;
   int _loadGeneration = 0;
   int _calibrationGeneration = 0;
 
@@ -706,6 +712,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
     }
     _closeSubscription.dispose();
     unawaited(_disposeDocumentState());
+    unawaited(_fallbackStudyCubit?.close());
     _searchController.dispose();
     super.dispose();
   }
@@ -720,6 +727,9 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
       return const Material(child: Center(child: CircularProgressIndicator()));
     }
     final padding = MediaQuery.paddingOf(context);
+    final studyCubit =
+        maybeStudyModeCubit(context) ??
+        (_fallbackStudyCubit ??= StudyModeCubit());
     return MultiBlocProvider(
       providers: [
         BlocProvider.value(value: runtime.bloc),
@@ -731,6 +741,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
         BlocProvider.value(value: runtime.editorController.inputCubit),
         BlocProvider.value(value: runtime.editorController.saveCubit),
         BlocProvider.value(value: runtime.editorController.viewCubit),
+        BlocProvider.value(value: studyCubit),
       ],
       child: BlocBuilder<DocumentBloc, DocumentState>(
         buildWhen: (previous, current) =>
@@ -790,6 +801,10 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                     ),
                                   ),
                                   builder: (context, settings) {
+                                    final studyToolbarMode = context.select<
+                                      StudyModeCubit,
+                                      bool
+                                    >((c) => c.state.studyToolbarMode);
                                     final actions = _buildActions(context);
                                     final floatingEditor =
                                         settings.floatingEditor &&
@@ -797,6 +812,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                             LeapBreakpoints.expanded;
                                     final body = _MainBody(
                                       viewportKey: _viewportKey,
+                                      canvasCaptureKey: _canvasCaptureKey,
                                     );
 
                                     return ListenableBuilder(
@@ -842,7 +858,8 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                                     inView: saveState.inView,
                                                     showTools:
                                                         settings.isInline &&
-                                                        saveState.editable,
+                                                        saveState.editable &&
+                                                        !studyToolbarMode,
                                                     floating: floatingEditor,
                                                   ),
                                             body: floatingEditor
@@ -1014,9 +1031,13 @@ class _EditorShortcutActivator extends ShortcutActivator {
 }
 
 class _MainBody extends StatelessWidget {
-  const _MainBody({required this.viewportKey});
+  const _MainBody({
+    required this.viewportKey,
+    required this.canvasCaptureKey,
+  });
 
   final GlobalKey<MainViewViewportState> viewportKey;
+  final GlobalKey canvasCaptureKey;
 
   @override
   Widget build(BuildContext context) {
@@ -1065,21 +1086,32 @@ class _MainBody extends StatelessWidget {
                                         current.propertyPosition ||
                                     previous.hasFlag('floatingEditor') !=
                                         current.hasFlag('floatingEditor'),
-                                builder: (context, settings) {
-                                  return LayoutBuilder(
-                                    builder: (context, constraints) =>
-                                        _buildLayout(
-                                          context,
-                                          constraints,
-                                          state,
-                                          toolState,
-                                          inputState,
-                                          saveState,
-                                          windowState,
-                                          settings,
-                                        ),
-                                  );
-                                },
+                                builder: (context, settings) =>
+                                    BlocBuilder<StudyModeCubit, StudyModeState>(
+                                      buildWhen: (previous, current) =>
+                                          previous.studyToolbarMode !=
+                                              current.studyToolbarMode ||
+                                          previous.studyPanelOpen !=
+                                              current.studyPanelOpen ||
+                                          previous.aiSnippingMode !=
+                                              current.aiSnippingMode,
+                                      builder: (context, studyState) {
+                                        return LayoutBuilder(
+                                          builder: (context, constraints) =>
+                                              _buildLayout(
+                                                context,
+                                                constraints,
+                                                state,
+                                                toolState,
+                                                inputState,
+                                                saveState,
+                                                windowState,
+                                                settings,
+                                                studyState,
+                                              ),
+                                        );
+                                      },
+                                    ),
                               ),
                         ),
                   ),
@@ -1097,6 +1129,7 @@ class _MainBody extends StatelessWidget {
     DocumentSaveState saveState,
     WindowState windowState,
     ButterflySettings settings,
+    StudyModeState studyState,
   ) {
     // Use PlatformDispatcher as a workaround for MediaQuery.viewInsets not updating fast enough. See: https://stackoverflow.com/a/64473806
     final Iterable<FlutterView> windowViews = PlatformDispatcher.instance.views;
@@ -1127,18 +1160,30 @@ class _MainBody extends StatelessWidget {
     final navigatorEnabled = context.select<EditorViewCubit, bool>(
       (cubit) => cubit.state.navigatorEnabled,
     );
+    final isStudyToolbar =
+        studyState.studyToolbarMode && state is DocumentLoadSuccess;
     final showNavigator =
+        !isStudyToolbar &&
         isLarge &&
         ((navigatorRailEnabled && !fullScreen) ||
             (navigatorEnabled && (fullScreen || !navigatorRailEnabled))) &&
         state is DocumentLoadSuccess &&
         inputState.hideUi == .visible;
+    final showDockedStudyPanel =
+        studyState.studyPanelOpen &&
+        state is DocumentLoadSuccess &&
+        isLarge;
+    final showOverlayStudyPanel =
+        studyState.studyPanelOpen &&
+        state is DocumentLoadSuccess &&
+        !isLarge;
 
     return Stack(
       children: [
         MainViewViewport(
           key: viewportKey,
           reserveBottomSystemGestures: windowState.fullScreen,
+          canvasCaptureKey: canvasCaptureKey,
         ),
         _buildSelectionListener(context, toolState),
         SafeArea(
@@ -1147,7 +1192,8 @@ class _MainBody extends StatelessWidget {
             children: [
               if (showNavigator && settings.navigatorPosition == .left)
                 NavigatorView(floating: floatingEditor),
-              if (settings.toolbarPosition == .left &&
+              if (!isStudyToolbar &&
+                  settings.toolbarPosition == .left &&
                   !isMobile &&
                   inputState.hideUi == .visible)
                 spacedToolbar,
@@ -1158,15 +1204,28 @@ class _MainBody extends StatelessWidget {
                 inputState,
                 isMobile,
                 spacedToolbar,
+                state is DocumentLoadSuccess,
+                isStudyToolbar,
               ),
-              if (settings.toolbarPosition == .right &&
+              if (!isStudyToolbar &&
+                  settings.toolbarPosition == .right &&
                   inputState.hideUi == .visible)
                 spacedToolbar,
+              if (showDockedStudyPanel) const PdfStudyPanel(),
               if (showNavigator && settings.navigatorPosition == .right)
                 NavigatorView(floating: floatingEditor),
             ],
           ),
         ),
+        if (showOverlayStudyPanel)
+          const SafeArea(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: PdfStudyPanel(),
+            ),
+          ),
+        if (studyState.aiSnippingMode && state is DocumentLoadSuccess)
+          CanvasSnipOverlay(canvasCaptureKey: canvasCaptureKey),
       ],
     );
   }
@@ -1193,6 +1252,8 @@ class _MainBody extends StatelessWidget {
     EditorInputState inputState,
     bool isMobile,
     Widget toolbar,
+    bool documentLoaded,
+    bool isStudyToolbar,
   ) {
     final pos = settings.toolbarPosition;
     final optPos = settings.optionsPanelPosition;
@@ -1200,17 +1261,24 @@ class _MainBody extends StatelessWidget {
         settings.hasFlag('floatingEditor') &&
         MediaQuery.sizeOf(context).width >= LeapBreakpoints.expanded;
     final showToolbar =
+        !isStudyToolbar &&
         (((fullScreen || settings.toolbarRows > 1) && pos == .inline ||
                 pos == .top) &&
             !isMobile) &&
         inputState.hideUi == .visible;
     final shareToolbarAndZoomEdge =
+        !isStudyToolbar &&
         !isMobile &&
         inputState.hideUi == .visible &&
         _toolbarAndZoomShareVerticalEdge(settings);
     final combineTopToolbarAndZoom = showToolbar && shareToolbarAndZoomEdge;
     final combineBottomToolbarAndZoom =
-        pos == .bottom && shareToolbarAndZoomEdge;
+        !isStudyToolbar && pos == .bottom && shareToolbarAndZoomEdge;
+    final quickStripAlignment =
+        settings.zoomPosition == .topLeft ||
+            settings.propertyPosition == .topLeft
+        ? Alignment.bottomLeft
+        : Alignment.topLeft;
 
     return Expanded(
       child: Column(
@@ -1224,7 +1292,9 @@ class _MainBody extends StatelessWidget {
                     edgeAttached: edgeAttached,
                   )
                 : toolbar,
-          if (optPos == .top && inputState.hideUi == .visible)
+          if (!isStudyToolbar &&
+              optPos == .top &&
+              inputState.hideUi == .visible)
             ToolbarView(edgeAttached: edgeAttached),
           Expanded(
             child: Stack(
@@ -1237,6 +1307,16 @@ class _MainBody extends StatelessWidget {
                   hideZoomTools:
                       combineTopToolbarAndZoom || combineBottomToolbarAndZoom,
                 ),
+                if (documentLoaded &&
+                    !isStudyToolbar &&
+                    inputState.hideUi == .visible)
+                  Align(
+                    alignment: quickStripAlignment,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: SaberQuickStrip(),
+                    ),
+                  ),
                 Align(
                   alignment: switch (settings.propertyPosition) {
                     .topRight => Alignment.topRight,
@@ -1252,9 +1332,13 @@ class _MainBody extends StatelessWidget {
               ],
             ),
           ),
-          if (optPos == .bottom && inputState.hideUi == .visible)
+          if (!isStudyToolbar &&
+              optPos == .bottom &&
+              inputState.hideUi == .visible)
             ToolbarView(edgeAttached: edgeAttached),
-          if ((isMobile || pos == .bottom) && inputState.hideUi == .visible)
+          if (!isStudyToolbar &&
+              (isMobile || pos == .bottom) &&
+              inputState.hideUi == .visible)
             combineBottomToolbarAndZoom
                 ? _buildCombinedToolbarAndZoom(
                     settings,
@@ -1262,6 +1346,8 @@ class _MainBody extends StatelessWidget {
                     edgeAttached: edgeAttached,
                   )
                 : toolbar,
+          if (isStudyToolbar && inputState.hideUi == .visible)
+            const SaberStudyToolbar(),
         ],
       ),
     );

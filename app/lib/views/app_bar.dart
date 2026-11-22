@@ -11,6 +11,7 @@ import 'package:butterfly/cubits/editor_controller.dart';
 import 'package:butterfly/cubits/transform.dart';
 import 'package:butterfly/dialogs/collaboration/dialog.dart';
 import 'package:butterfly/main.dart';
+import 'package:butterfly/saber_fusion/study_state.dart';
 import 'package:butterfly/services/import.dart';
 import 'package:butterfly/services/network.dart';
 import 'package:butterfly/views/edit.dart';
@@ -916,6 +917,53 @@ class MainPopupMenu extends StatelessWidget {
                             },
                             child: Text(AppLocalizations.of(context).packs),
                           ),
+                          if (maybeStudyModeCubit(context)
+                              case final studyCubit?)
+                            SubmenuButton(
+                              leadingIcon: const PhosphorIcon(
+                                PhosphorIconsLight.bookOpen,
+                              ),
+                              menuChildren: [
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.pencilSimpleLine,
+                                  ),
+                                  onPressed: studyCubit.toggleStudyToolbarMode,
+                                  child: const Text('切换极简刷题工具栏 (Saber 笔盒)'),
+                                ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.moon,
+                                  ),
+                                  onPressed: studyCubit.cycleColorMode,
+                                  child: const Text('切换护眼反色 / 纸面模式'),
+                                ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.highlighterCircle,
+                                  ),
+                                  onPressed: studyCubit.togglePerfectHighlighter,
+                                  child: const Text('切换不遮字荧光笔混合模式'),
+                                ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.listBullets,
+                                  ),
+                                  onPressed: () =>
+                                      studyCubit.openStudyPanel(StudyPanelTab.toc),
+                                  child: const Text('教材目录 / 搜题 / 错题本'),
+                                ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.sparkle,
+                                  ),
+                                  onPressed: () =>
+                                      studyCubit.setAiSnippingMode(true),
+                                  child: const Text('框选题目问 AI 助教'),
+                                ),
+                              ],
+                              child: const Text('学习融合工具 (Saber+AI)'),
+                            ),
                           const Divider(),
                         ],
                         if (showNavigatorDialog) ...[

@@ -192,11 +192,27 @@ class PenRenderer extends Renderer<PenElement> {
     _build(canvas);
   }
 
+  void buildWithOptions(Canvas canvas, {bool perfectHighlighter = false}) {
+    _build(canvas, perfectHighlighter: perfectHighlighter);
+  }
+
   void buildCombined(Canvas canvas) {
     _build(canvas, combined: true);
   }
 
-  void _build(Canvas canvas, {bool combined = false}) {
+  bool get _isHighlighterPaint {
+    final property = element.property;
+    final strokeAlpha = property.paint.previewColor.a;
+    return strokeAlpha > 0 &&
+        strokeAlpha < 235 &&
+        property.fillPaint.previewColor.a == 0;
+  }
+
+  void _build(
+    Canvas canvas, {
+    bool combined = false,
+    bool perfectHighlighter = false,
+  }) {
     final points = element.points;
     if (points.isEmpty) return;
     final property = element.property;
@@ -216,6 +232,9 @@ class PenRenderer extends Renderer<PenElement> {
         expandedRect,
         style: .fill,
       )..strokeCap = StrokeCap.round;
+      if (!combined && perfectHighlighter && _isHighlighterPaint) {
+        paint.blendMode = BlendMode.multiply;
+      }
       _drawPath(canvas, _cachedStrokePath!, paint, combined: combined);
     }
   }

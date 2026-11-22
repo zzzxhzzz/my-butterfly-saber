@@ -1,0 +1,130 @@
+name: Saber Fusion Build (Windows & Android)
+
+on:
+  push:
+    branches:
+      - saber-fusion
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: saber-fusion-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: app/pubspec.yaml
+          cache: true
+      - name: Install dependencies and generate l10n
+        run: |
+          flutter pub get
+          flutter gen-l10n
+      - name: Analyze Dart code
+        run: flutter analyze --no-fatal-infos
+      - name: Run Flutter tests
+        run: flutter test
+
+  build-android:
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          rust-src-dir: app
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: app/pubspec.yaml
+          cache: true
+      - name: Optional release signing
+        env:
+          KEY_JKS: ${{ secrets.KEY_JKS }}
+          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
+        run: |
+          cd android
+          if [[ -n "$KEY_PROPERTIES" ]]; then echo "$KEY_PROPERTIES" | base64 --decode > key.properties; fi
+          if [[ -n "$KEY_JKS" ]]; then echo "$KEY_JKS" | base64 --decode > key.jks; fi
+      - name: Install dependencies and generate l10n
+        run: |
+          flutter pub get
+          flutter gen-l10n
+      - name: Build Android APKs (arm64 + universal)
+        run: |
+          flutter build apk --release --flavor nightly --target-platform android-arm64 --split-per-abi
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-nightly-release.apk butterfly-saber-fusion-android-arm64.apk
+          flutter build apk --release --flavor nightly
+          cp build/app/outputs/flutter-apk/app-nightly-release.apk butterfly-saber-fusion-android-universal.apk
+      - name: Upload Android APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: saber-fusion-android-apk
+          path: |
+            app/butterfly-saber-fusion-android-arm64.apk
+            app/butterfly-saber-fusion-android-universal.apk
+
+  build-windows:
+    needs: verify
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          rust-src-dir: app
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: app/pubspec.yaml
+          cache: true
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      - name: Install dependencies and generate l10n
+        run: |
+          flutter pub get
+          flutter gen-l10n
+      - name: Build Windows release
+        run: flutter build windows --release --flavor nightly
+      - name: Package portable Windows zip
+        shell: pwsh
+        run: |
+          $releaseDir = "build/windows/x64/nightly/runner/Release"
+          if (-not (Test-Path $releaseDir)) {
+            $releaseDir = "build/windows/x64/runner/Release"
+          }
+          if (Test-Path "scripts/start.bat") {
+            Copy-Item "scripts/start.bat" -Destination $releaseDir -Force
+          }
+          Compress-Archive -Path "$releaseDir/*" -DestinationPath "butterfly-saber-fusion-windows-x64.zip" -Force
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: saber-fusion-windows-x64
+          path: app/butterfly-saber-fusion-windows-x64.zip

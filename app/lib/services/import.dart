@@ -1172,36 +1172,45 @@ class ImportService(
           createExportPreset = true,
           invert = false;
       var importScale = 1.0;
+      var draftMarginRightPercent = 0.0;
+      var draftMarginBottomPercent = 0.0;
+      var pageGap = 0.0;
+      var includeMarginInArea = true;
       SRGBColor background = BasicColors.whiteTransparent;
       if (advanced) {
-        for (int i = 0; i < elements.length; i++) {
-          final raster = elements[i];
-          dialog?.setProgress(i / elements.length);
-          // Selection only needs thumbnails, not full-resolution page images.
-          final scale = min(1.0, 512 / max(raster.width, raster.height));
-          final width = max(1, (raster.width * scale).round());
-          final height = max(1, (raster.height * scale).round());
-          final pdfImage = await raster.render(
-            width: width,
-            height: height,
-            fullWidth: width.toDouble(),
-            fullHeight: height.toDouble(),
-          );
-          if (pdfImage == null) {
-            throw StateError('Failed to render PDF page ${i + 1}');
+        const lazyThreshold = 20;
+        if (elements.length <= lazyThreshold) {
+          for (int i = 0; i < elements.length; i++) {
+            final raster = elements[i];
+            dialog?.setProgress(i / elements.length);
+            // Selection only needs thumbnails, not full-resolution page images.
+            final scale = min(1.0, 512 / max(raster.width, raster.height));
+            final width = max(1, (raster.width * scale).round());
+            final height = max(1, (raster.height * scale).round());
+            final pdfImage = await raster.render(
+              width: width,
+              height: height,
+              fullWidth: width.toDouble(),
+              fullHeight: height.toDouble(),
+            );
+            if (pdfImage == null) {
+              throw StateError('Failed to render PDF page ${i + 1}');
+            }
+            try {
+              images.add(await pdfImage.createImage());
+            } finally {
+              pdfImage.dispose();
+            }
+            if (!context.mounted) return null;
           }
-          try {
-            images.add(await pdfImage.createImage());
-          } finally {
-            pdfImage.dispose();
-          }
-          if (!context.mounted) return null;
         }
         dialog?.close();
         dialog = null;
         final callback = await showDialog<PageDialogCallback>(
           context: context,
-          builder: (context) => ImportPagesDialog(pages: images, name: name),
+          builder: (context) => elements.length <= lazyThreshold
+              ? ImportPagesDialog(pages: images, name: name)
+              : ImportPagesDialog(pdfDocument: pdfDocument, name: name),
         );
         if (callback == null || !context.mounted) return null;
         pages = callback.pages;
@@ -1212,6 +1221,10 @@ class ImportService(
         background = callback.background;
         name = callback.name;
         importScale = callback.scale;
+        draftMarginRightPercent = callback.draftMarginRightPercent;
+        draftMarginBottomPercent = callback.draftMarginBottomPercent;
+        pageGap = callback.pageGap;
+        includeMarginInArea = callback.includeMarginInArea;
       }
       String getPageName(int index) {
         if (name?.isEmpty ?? true) return localizations.pageIndex(index + 1);
@@ -1241,6 +1254,12 @@ class ImportService(
           current++;
           final height = pdfPointsToCanvasUnits(raster.height) * importScale;
           final width = pdfPointsToCanvasUnits(raster.width) * importScale;
+          final extraRight = width * (draftMarginRightPercent / 100);
+          final extraBottom = height * (draftMarginBottomPercent / 100);
+          final areaWidth = includeMarginInArea ? width + extraRight : width;
+          final areaHeight = includeMarginInArea
+              ? height + extraBottom
+              : height;
           final pageName = getPageName(i);
           final element = PdfElement(
             height: height,
@@ -1252,8 +1271,8 @@ class ImportService(
             background: background,
           );
           final area = Area(
-            height: height,
-            width: width,
+            height: areaHeight,
+            width: areaWidth,
             position: Point(firstPos.dx, y),
             name: pageName,
           );
@@ -1283,7 +1302,7 @@ class ImportService(
                     '',
               ),
             );
-            y += height;
+            y += height + extraBottom + pageGap;
           }
         } catch (e) {
           showDialog(
