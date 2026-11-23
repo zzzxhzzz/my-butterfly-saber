@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:butterfly/actions/new.dart';
 import 'package:butterfly/actions/settings.dart';
 import 'package:butterfly/api/file_system.dart';
@@ -5,6 +7,9 @@ import 'package:butterfly/api/open.dart';
 import 'package:butterfly/cubits/settings.dart';
 import 'package:butterfly/dialogs/template.dart';
 import 'package:butterfly/models/defaults.dart';
+import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
+import 'package:butterfly/saber_fusion/lan_sync_dialog.dart';
+import 'package:butterfly/saber_fusion/lan_sync_models.dart';
 import 'package:butterfly/settings/home.dart';
 import 'package:butterfly/views/files/card.dart';
 import 'package:butterfly/views/files/recent.dart';
@@ -36,6 +41,7 @@ enum _MobileTab { home, files, settings }
 
 class _HomePageState extends State<HomePage> {
   final GlobalKey<FilesViewState> _filesViewKey = GlobalKey();
+  final GlobalKey<RecentFilesViewState> _recentFilesKey = GlobalKey();
   ExternalStorage? _remote;
   _MobileTab _tab = _MobileTab.home;
 
@@ -110,11 +116,12 @@ class _HomePageState extends State<HomePage> {
                       tooltip: AppLocalizations.of(context).settings,
                       onPressed: () => openSettings(context),
                     ),
+                  _buildLanSyncButton(context),
                   if (!isMobile) _getBannerVisibilityWidget(context, settings),
                 ],
               ],
             );
-            return Scaffold(
+            final scaffold = Scaffold(
               appBar: isMobile ? null : appBar,
               bottomNavigationBar: isMobile && !isMobileLandscape
                   ? NavigationBar(
@@ -210,6 +217,7 @@ class _HomePageState extends State<HomePage> {
                                       ),
                                     ),
                                     RecentFilesView(
+                                      key: _recentFilesKey,
                                       replace: false,
                                       asGrid: true,
                                     ),
@@ -301,9 +309,65 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
             );
+            final lanCubit = maybeLanSyncCubit(context);
+            if (lanCubit == null) return scaffold;
+            return BlocListener<LanSyncCubit, LanSyncState>(
+              bloc: lanCubit,
+              listenWhen: (previous, current) =>
+                  previous.syncRevision != current.syncRevision,
+              listener: (context, syncState) {
+                _filesViewKey.currentState?.reloadFileSystem();
+                _recentFilesKey.currentState?.reload();
+                if (syncState.recentSyncedPaths.isNotEmpty) {
+                  final settingsCubit = context.read<SettingsCubit>();
+                  for (final path in syncState.recentSyncedPaths) {
+                    unawaited(
+                      settingsCubit.addRecentHistory(AssetLocation(path: path)),
+                    );
+                  }
+                  lanCubit.clearRecentSyncedPaths();
+                }
+              },
+              child: scaffold,
+            );
           },
         );
       },
     );
   }
+}
+
+Widget _buildLanSyncButton(BuildContext context) {
+  final lanCubit = maybeLanSyncCubit(context);
+  if (lanCubit == null) return const SizedBox.shrink();
+  return BlocBuilder<LanSyncCubit, LanSyncState>(
+    bloc: lanCubit,
+    buildWhen: (previous, current) =>
+        previous.account.isSignedIn != current.account.isSignedIn ||
+        previous.peers.length != current.peers.length ||
+        previous.syncing != current.syncing,
+    builder: (context, syncState) {
+      final signedIn = syncState.account.isSignedIn;
+      final onlineCount = syncState.peers.length;
+      final tooltip = !signedIn
+          ? '双端局域网同步账号（点击登录）'
+          : onlineCount > 0
+          ? '局域网已连接 $onlineCount 台设备（点击同步/查页码记忆）'
+          : '局域网同步监听中 · 等待同账号设备';
+      return IconButton(
+        tooltip: tooltip,
+        isSelected: signedIn && onlineCount > 0,
+        icon: Badge(
+          isLabelVisible: signedIn && onlineCount > 0,
+          label: Text('$onlineCount'),
+          child: PhosphorIcon(
+            signedIn && onlineCount > 0
+                ? PhosphorIconsLight.wifiHigh
+                : PhosphorIconsLight.cloud,
+          ),
+        ),
+        onPressed: () => unawaited(showLanSyncDialog(context)),
+      );
+    },
+  );
 }

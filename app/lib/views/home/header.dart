@@ -102,6 +102,7 @@ class _HeaderHomeViewState extends State<_HeaderHomeView>
           icon: const PhosphorIcon(PhosphorIconsLight.bookOpen),
           label: Text(AppLocalizations.of(context).documentation),
         ),
+        _buildLanSyncButton(context),
         IconButton(
           onPressed: () => openSettings(context),
           icon: const PhosphorIcon(PhosphorIconsLight.gear),

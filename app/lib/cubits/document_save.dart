@@ -193,6 +193,7 @@ class DocumentSaveCubit(
           saved: state.saved == .saving ? .saved : state.saved,
           location: current,
         );
+        LanSyncHooks.notifyDocumentSaved(current);
         return current;
       } catch (_) {
         if (!isClosed) {

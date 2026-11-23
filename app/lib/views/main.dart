@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:butterfly/actions/shortcuts.dart';
@@ -13,6 +14,9 @@ import 'package:butterfly/embed/embedding.dart';
 import 'package:butterfly/embed/view_state.dart';
 import 'package:butterfly/models/defaults.dart';
 import 'package:butterfly/saber_fusion/canvas_snip_overlay.dart';
+import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
+import 'package:butterfly/saber_fusion/lan_sync_models.dart';
+import 'package:butterfly/saber_fusion/lan_sync_service.dart';
 import 'package:butterfly/saber_fusion/pdf_study_panel.dart';
 import 'package:butterfly/saber_fusion/study_state.dart';
 import 'package:butterfly/saber_fusion/study_toolbar.dart';
@@ -135,6 +139,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
   final GlobalKey<MainViewViewportState> _viewportKey = GlobalKey();
   final GlobalKey _canvasCaptureKey = GlobalKey();
   StudyModeCubit? _fallbackStudyCubit;
+  DateTime? _suppressReadingRecordUntil;
   int _loadGeneration = 0;
   int _calibrationGeneration = 0;
 
@@ -215,6 +220,13 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _reloadFromLanSync(AssetLocation location) async {
+    await _disposeDocumentState();
+    if (mounted) {
+      unawaited(_load(overrideLocation: location));
+    }
+  }
+
   Future<void> _disposeDocumentState() async {
     _loadGeneration++;
     final runtime = _runtime;
@@ -222,14 +234,15 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
     await runtime?.close();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({AssetLocation? overrideLocation}) async {
     final loadGeneration = ++_loadGeneration;
     bool isCurrentLoad() => mounted && loadGeneration == _loadGeneration;
     final settingsCubit = context.read<SettingsCubit>();
     final windowCubit = context.read<WindowCubit>();
     final fileSystem = context.read<ButterflyFileSystem>();
     final absolute = widget.absolute || (widget.location?.absolute ?? false);
-    var location = widget.location?.copyWith(absolute: absolute);
+    var location =
+        (overrideLocation ?? widget.location)?.copyWith(absolute: absolute);
     var initialDirectory = widget.initialDirectory;
     final remote = settingsCubit.getRemote(location?.remote);
     final documentSystem = fileSystem.buildDocumentSystem(remote);
@@ -698,9 +711,150 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (isCurrentLoad()) {
           _runtime?.editorController.focusNode.requestFocus();
+          _recordCurrentReadingMemory(context);
         }
       });
     });
+  }
+
+  void _recordCurrentReadingMemory(BuildContext context) {
+    final suppressUntil = _suppressReadingRecordUntil;
+    if (suppressUntil != null && DateTime.now().isBefore(suppressUntil)) {
+      return;
+    }
+    final lanSync = maybeLanSyncCubit(context);
+    final runtime = _runtime;
+    if (lanSync == null || runtime == null) return;
+    final docState = runtime.bloc.state;
+    final saveLoc = runtime.editorController.saveCubit.state.location;
+    if (docState is! DocumentLoadSuccess ||
+        saveLoc.isRemote ||
+        saveLoc.absolute ||
+        saveLoc.path.isEmpty) {
+      return;
+    }
+    final pages = docState.data.getPages(true);
+    final idx = pages.indexOf(docState.pageName);
+    final transform = runtime.transformCubit.state;
+    unawaited(
+      lanSync.recordReadingMemory(
+        docPath: saveLoc.path,
+        docName: docState.metadata.name,
+        pageName: docState.pageName,
+        pageIndex: idx >= 0 ? idx + 1 : 1,
+        totalPages: pages.isEmpty ? 1 : pages.length,
+        cameraX: transform.position.dx,
+        cameraY: transform.position.dy,
+        zoom: transform.size,
+        rotation: transform.rotation,
+      ),
+    );
+  }
+
+  void _handleLanSyncEvent(BuildContext context, LanSyncState syncState) {
+    final event = syncState.lastDocumentEvent;
+    final runtime = _runtime;
+    if (event == null || runtime == null || !mounted) return;
+    final saveState = runtime.editorController.saveCubit.state;
+    final loc = saveState.location;
+    if (loc.isRemote || loc.absolute || loc.path.isEmpty) return;
+    if (normalizeSyncDocPath(loc.path) !=
+        normalizeSyncDocPath(event.docPath)) {
+      return;
+    }
+
+    if (event.contentUpdated) {
+      if (saveState.saved == SaveState.saved) {
+        _suppressReadingRecordUntil = DateTime.now().add(
+          const Duration(seconds: 4),
+        );
+        unawaited(_reloadFromLanSync(loc));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已同步「${event.fromDeviceName}」的最新批注')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('收到「${event.fromDeviceName}」的新批注版本（本机有未保存修改）'),
+            action: SnackBarAction(
+              label: '载入新版',
+              onPressed: () {
+                _suppressReadingRecordUntil = DateTime.now().add(
+                  const Duration(seconds: 4),
+                );
+                unawaited(_reloadFromLanSync(loc));
+              },
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (event.stateUpdated) {
+      final docState = runtime.bloc.state;
+      if (docState is! DocumentLoadSuccess) return;
+      final targetPage = event.targetPageName;
+      if (targetPage == null ||
+          !docState.data.getPages(true).contains(targetPage)) {
+        return;
+      }
+
+      final currentTransform = runtime.transformCubit.state;
+      final samePage = docState.pageName == targetPage;
+      final sameCamera =
+          event.cameraX == null ||
+          event.cameraY == null ||
+          ((currentTransform.position.dx - event.cameraX!).abs() < 15 &&
+              (currentTransform.position.dy - event.cameraY!).abs() < 15 &&
+              (event.zoom == null ||
+                  (currentTransform.size - event.zoom!).abs() < 0.05));
+      if (samePage && sameCamera) return;
+
+      void applyJump() {
+        _suppressReadingRecordUntil = DateTime.now().add(
+          const Duration(seconds: 4),
+        );
+        if (docState.pageName != targetPage) {
+          runtime.bloc.add(
+            PageChanged(
+              targetPage,
+              position: event.cameraX != null && event.cameraY != null
+                  ? Point<double>(event.cameraX!, event.cameraY!)
+                  : null,
+              zoom: event.zoom,
+            ),
+          );
+        } else if (event.cameraX != null && event.cameraY != null) {
+          runtime.transformCubit.teleport(
+            Offset(event.cameraX!, event.cameraY!),
+            event.zoom,
+            event.rotation,
+          );
+          unawaited(runtime.bloc.bake());
+        }
+      }
+
+      if (syncState.account.followRemotePage) {
+        applyJump();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text('已同步「${event.fromDeviceName}」的阅读位置'),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('「${event.fromDeviceName}」翻到了页面：$targetPage'),
+            action: SnackBarAction(
+              label: '同步跳转',
+              onPressed: applyJump,
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -815,7 +969,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                       canvasCaptureKey: _canvasCaptureKey,
                                     );
 
-                                    return ListenableBuilder(
+                                    final editor = ListenableBuilder(
                                       listenable: keybinder,
                                       builder: (context, child) {
                                         return Actions(
@@ -886,6 +1040,47 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                           ),
                                         ),
                                       ),
+                                    );
+                                    return MultiBlocListener(
+                                      listeners: [
+                                        BlocListener<DocumentBloc, DocumentState>(
+                                          listenWhen: (prev, curr) =>
+                                              prev is DocumentLoadSuccess &&
+                                                  curr is DocumentLoadSuccess
+                                              ? prev.pageName != curr.pageName
+                                              : curr is DocumentLoadSuccess,
+                                          listener: (context, _) =>
+                                              _recordCurrentReadingMemory(
+                                                context,
+                                              ),
+                                        ),
+                                        BlocListener<
+                                          DocumentSaveCubit,
+                                          DocumentSaveState
+                                        >(
+                                          listenWhen: (prev, curr) =>
+                                              prev.saved != curr.saved &&
+                                              curr.saved == SaveState.saved,
+                                          listener: (context, _) =>
+                                              _recordCurrentReadingMemory(
+                                                context,
+                                              ),
+                                        ),
+                                        if (maybeLanSyncCubit(context)
+                                            case final lanCubit?)
+                                          BlocListener<
+                                            LanSyncCubit,
+                                            LanSyncState
+                                          >(
+                                            bloc: lanCubit,
+                                            listenWhen: (prev, curr) =>
+                                                prev.lastDocumentEvent
+                                                    ?.eventId !=
+                                                curr.lastDocumentEvent?.eventId,
+                                            listener: _handleLanSyncEvent,
+                                          ),
+                                      ],
+                                      child: editor,
                                     );
                                   },
                                 ),

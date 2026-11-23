@@ -8,6 +8,9 @@ import 'package:material_leap/material_leap.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import 'lan_sync_cubit.dart';
+import 'lan_sync_dialog.dart';
+import 'lan_sync_models.dart';
 import 'study_state.dart';
 
 class SaberQuickStrip extends StatelessWidget {
@@ -120,6 +123,47 @@ class SaberQuickStrip extends StatelessWidget {
                   onPressed: () =>
                       studyCubit.setAiSnippingMode(!state.aiSnippingMode),
                 ),
+                if (maybeLanSyncCubit(context) case final lanCubit?)
+                  BlocBuilder<LanSyncCubit, LanSyncState>(
+                    bloc: lanCubit,
+                    buildWhen: (previous, current) =>
+                        previous.account.isSignedIn !=
+                            current.account.isSignedIn ||
+                        previous.peers.length != current.peers.length ||
+                        previous.syncing != current.syncing,
+                    builder: (context, syncState) {
+                      final online =
+                          syncState.account.isSignedIn &&
+                          syncState.peers.isNotEmpty;
+                      return IconButton(
+                        tooltip: !syncState.account.isSignedIn
+                            ? '双端局域网同步账号'
+                            : online
+                            ? '局域网已连接 ${syncState.peers.length} 台设备（点击同步/查页码）'
+                            : '局域网同步监听中',
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        padding: EdgeInsets.zero,
+                        isSelected: online,
+                        style: online
+                            ? IconButton.styleFrom(
+                                backgroundColor: colorScheme.primaryContainer,
+                                foregroundColor: colorScheme.onPrimaryContainer,
+                              )
+                            : null,
+                        icon: PhosphorIcon(
+                          syncState.account.isSignedIn
+                              ? PhosphorIconsLight.wifiHigh
+                              : PhosphorIconsLight.cloud,
+                          size: 18,
+                        ),
+                        onPressed: () => unawaited(showLanSyncDialog(context)),
+                      );
+                    },
+                  ),
               ],
             ),
           ),

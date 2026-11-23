@@ -27,6 +27,7 @@ import 'package:keybinder/keybinder.dart';
 import 'package:talker_flutter/talker_flutter.dart';
 
 import 'cubits/settings.dart';
+import 'saber_fusion/lan_sync_cubit.dart';
 import 'saber_fusion/study_state.dart';
 import 'embed/embedding.dart';
 import 'settings/home.dart';
@@ -358,6 +359,9 @@ class ButterflyApp extends StatelessWidget {
           ),
           BlocProvider(
             create: (context) => StudyModeCubit()..load(),
+          ),
+          BlocProvider(
+            create: (context) => LanSyncCubit()..load(),
           ),
         ],
         child: _buildApp(lightDynamic, darkDynamic),

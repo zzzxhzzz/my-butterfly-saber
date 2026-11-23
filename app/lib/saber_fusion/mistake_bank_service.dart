@@ -98,6 +98,14 @@ class MistakeBankService extends ChangeNotifier {
 
   List<MistakeEntry> get entries => List.unmodifiable(_entries);
 
+  Future<Directory?> getRootDirectory() => _rootDirectory();
+
+  Future<void> reloadFromDisk() async {
+    _loaded = false;
+    await ensureLoaded();
+    notifyListeners();
+  }
+
   Future<Directory?> _rootDirectory() async {
     if (kIsWeb) return null;
     final docs = await getApplicationDocumentsDirectory();

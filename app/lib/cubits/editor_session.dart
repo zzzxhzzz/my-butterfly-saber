@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:butterfly/cubits/transform.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:butterfly/services/document_state.dart';
+import 'package:butterfly/saber_fusion/lan_sync_service.dart';
 import 'package:butterfly/views/navigator/view.dart';
 import 'package:collection/collection.dart';
 import 'package:material_ui/material_ui.dart';
@@ -303,6 +304,7 @@ class EditorSessionCubit({
             previousPathKey: previousState?.pathKey,
             persistentChanged: pending.persistentChanged,
           );
+          LanSyncHooks.notifyDocumentStateSaved(next);
         } catch (e, stackTrace) {
           debugPrintStack(
             label: 'Error saving document state',

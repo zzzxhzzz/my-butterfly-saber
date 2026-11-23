@@ -11,6 +11,8 @@ import 'package:butterfly/cubits/editor_controller.dart';
 import 'package:butterfly/cubits/transform.dart';
 import 'package:butterfly/dialogs/collaboration/dialog.dart';
 import 'package:butterfly/main.dart';
+import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
+import 'package:butterfly/saber_fusion/lan_sync_dialog.dart';
 import 'package:butterfly/saber_fusion/study_state.dart';
 import 'package:butterfly/services/import.dart';
 import 'package:butterfly/services/network.dart';
@@ -961,6 +963,14 @@ class MainPopupMenu extends StatelessWidget {
                                       studyCubit.setAiSnippingMode(true),
                                   child: const Text('框选题目问 AI 助教'),
                                 ),
+                                if (maybeLanSyncCubit(context) != null)
+                                  MenuItemButton(
+                                    leadingIcon: const PhosphorIcon(
+                                      PhosphorIconsLight.wifiHigh,
+                                    ),
+                                    onPressed: () => showLanSyncDialog(context),
+                                    child: const Text('双端局域网同步账号'),
+                                  ),
                               ],
                               child: const Text('学习融合工具 (Saber+AI)'),
                             ),
