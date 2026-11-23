@@ -19,6 +19,7 @@ import 'package:butterfly/cubits/transform.dart';
 import 'package:butterfly/services/network.dart';
 import 'package:butterfly/services/logger.dart';
 import 'package:butterfly/saber_fusion/lan_sync_service.dart';
+import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
 import 'package:butterfly/helpers/xml.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:butterfly/view_painter.dart';

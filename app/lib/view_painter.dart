@@ -2,6 +2,7 @@ import 'package:butterfly/cubits/settings.dart';
 import 'package:butterfly/helpers/rect.dart';
 import 'package:butterfly/models/viewport.dart';
 import 'package:butterfly/renderers/renderer.dart';
+import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
 import 'package:butterfly/views/navigator/constants.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:flutter/foundation.dart';
@@ -31,6 +32,7 @@ void _paintRenderer(
   bool foreground = false,
   bool combined = false,
   bool perfectHighlighter = true,
+  PdfMarginCropConfig pdfDisplayOptions = const PdfMarginCropConfig.vanilla(),
 }) {
   final transformed = renderer.transformCanvas(canvas);
   if (combined && renderer is PenRenderer) {
@@ -39,6 +41,18 @@ void _paintRenderer(
       renderer is PenRenderer &&
       isPerfectHighlighterStroke(renderer)) {
     renderer.buildWithOptions(canvas, perfectHighlighter: true);
+  } else if (renderer is PdfRenderer) {
+    renderer.buildWithDisplayOptions(
+      canvas,
+      size,
+      document,
+      page,
+      info,
+      transform,
+      colorScheme: colorScheme,
+      foreground: foreground,
+      displayOptions: pdfDisplayOptions,
+    );
   } else {
     renderer.build(
       canvas,
@@ -81,6 +95,7 @@ void _paintRenderers(
   Iterable<Renderer> renderers, {
   bool foreground = false,
   bool perfectHighlighter = true,
+  PdfMarginCropConfig pdfDisplayOptions = const PdfMarginCropConfig.vanilla(),
 }) {
   final rendererList = renderers is List<Renderer>
       ? renderers
@@ -105,6 +120,7 @@ void _paintRenderers(
         renderer,
         foreground: foreground,
         perfectHighlighter: perfectHighlighter,
+        pdfDisplayOptions: pdfDisplayOptions,
       );
     }
     return;
@@ -126,6 +142,7 @@ void _paintRenderers(
         renderer,
         foreground: foreground,
         perfectHighlighter: perfectHighlighter,
+        pdfDisplayOptions: pdfDisplayOptions,
       );
       continue;
     }
@@ -143,6 +160,7 @@ void _paintRenderers(
         group.first,
         foreground: foreground,
         perfectHighlighter: perfectHighlighter,
+        pdfDisplayOptions: pdfDisplayOptions,
       );
       continue;
     }
@@ -165,6 +183,7 @@ void _paintRenderers(
         foreground: foreground,
         combined: true,
         perfectHighlighter: perfectHighlighter,
+        pdfDisplayOptions: pdfDisplayOptions,
       );
     }
     canvas.restore();
@@ -255,6 +274,7 @@ class ViewPainter extends CustomPainter {
       renderBaked,
       renderBakedLayers,
       perfectHighlighter;
+  final PdfMarginCropConfig pdfDisplayOptions;
   final CameraViewport cameraViewport;
   final CameraTransform transform;
   final ColorScheme? colorScheme;
@@ -271,6 +291,7 @@ class ViewPainter extends CustomPainter {
     this.renderBaked = true,
     this.renderBakedLayers = true,
     this.perfectHighlighter = true,
+    this.pdfDisplayOptions = const PdfMarginCropConfig.vanilla(),
     required this.cameraViewport,
     this.colorScheme,
     this.transform = const CameraTransform(),
@@ -359,6 +380,7 @@ class ViewPainter extends CustomPainter {
       colorScheme,
       renderers,
       perfectHighlighter: perfectHighlighter,
+      pdfDisplayOptions: pdfDisplayOptions,
     );
     final aboveLayerImage = cameraViewport.aboveLayerImage;
     if (renderBakedLayers && aboveLayerImage != null) {
@@ -387,6 +409,7 @@ class ViewPainter extends CustomPainter {
         renderBaked != oldDelegate.renderBaked ||
         renderBakedLayers != oldDelegate.renderBakedLayers ||
         perfectHighlighter != oldDelegate.perfectHighlighter ||
+        pdfDisplayOptions != oldDelegate.pdfDisplayOptions ||
         transform != oldDelegate.transform ||
         !identical(cameraViewport, oldDelegate.cameraViewport) ||
         (!identical(invisibleLayers, oldDelegate.invisibleLayers) &&

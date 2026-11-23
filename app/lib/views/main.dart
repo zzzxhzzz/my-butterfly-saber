@@ -17,6 +17,9 @@ import 'package:butterfly/saber_fusion/canvas_snip_overlay.dart';
 import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
 import 'package:butterfly/saber_fusion/lan_sync_models.dart';
 import 'package:butterfly/saber_fusion/lan_sync_service.dart';
+import 'package:butterfly/saber_fusion/multi_pdf_window_layer.dart';
+import 'package:butterfly/saber_fusion/pdf_book_overlay.dart';
+import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
 import 'package:butterfly/saber_fusion/pdf_study_panel.dart';
 import 'package:butterfly/saber_fusion/study_state.dart';
 import 'package:butterfly/saber_fusion/study_toolbar.dart';
@@ -1380,6 +1383,9 @@ class _MainBody extends StatelessWidget {
           reserveBottomSystemGestures: windowState.fullScreen,
           canvasCaptureKey: canvasCaptureKey,
         ),
+        if (state is DocumentLoadSuccess &&
+            studyState.pdfCrop.layoutMode != PdfViewLayoutMode.singlePage)
+          const Positioned.fill(child: SplitPageBookReaderOverlay()),
         _buildSelectionListener(context, toolState),
         SafeArea(
           child: Row(
@@ -1419,6 +1425,10 @@ class _MainBody extends StatelessWidget {
               child: PdfStudyPanel(),
             ),
           ),
+        if (state is DocumentLoadSuccess &&
+            studyState.pdfCrop.layoutMode != PdfViewLayoutMode.singlePage)
+          const PdfBookNavigationBar(),
+        const Positioned.fill(child: MultiPdfWindowLayer()),
         if (studyState.aiSnippingMode && state is DocumentLoadSuccess)
           CanvasSnipOverlay(canvasCaptureKey: canvasCaptureKey),
       ],

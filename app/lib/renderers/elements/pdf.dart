@@ -81,32 +81,141 @@ class PdfRenderer extends Renderer<PdfElement> {
     ColorScheme? colorScheme,
     bool foreground = false,
   ]) {
+    buildWithDisplayOptions(
+      canvas,
+      size,
+      document,
+      page,
+      info,
+      transform,
+      colorScheme: colorScheme,
+      foreground: foreground,
+    );
+  }
+
+  void buildWithDisplayOptions(
+    Canvas canvas,
+    Size size,
+    NoteData document,
+    DocumentPage page,
+    DocumentInfo info,
+    CameraTransform transform, {
+    ColorScheme? colorScheme,
+    bool foreground = false,
+    PdfMarginCropConfig displayOptions = const PdfMarginCropConfig.vanilla(),
+  }) {
     final image = this.image;
+    final signedSize = _signedSize;
+    final absW = signedSize.dx.abs();
+    final absH = signedSize.dy.abs();
+    final lFrac = displayOptions.effectiveLeftForPage(element.page);
+    final rFrac = displayOptions.effectiveRightForPage(element.page);
+    final tFrac = displayOptions.top;
+    final bFrac = displayOptions.bottom;
+    final dstRect = displayOptions.croppedLocalRect(absW, absH, element.page);
+
+    canvas.save();
+    canvas.translate(element.position.x, element.position.y);
+    canvas.scale(signedSize.dx < 0 ? -1 : 1, signedSize.dy < 0 ? -1 : 1);
+
+    if (displayOptions.effectiveShowShadow && !dstRect.isEmpty) {
+      canvas.drawRect(
+        dstRect.shift(const Offset(0, 2)),
+        Paint()
+          ..color = const Color(0x28000000)
+          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 8),
+      );
+    }
 
     if (image == null) {
-      // Render placeholder
       final paint = Paint()
         ..color = element.background.a > 0
             ? element.background.toColor()
             : Colors.grey
         ..style = PaintingStyle.fill;
-      canvas.drawRect(rect, paint);
+      canvas.drawRect(dstRect, paint);
     } else {
       final paint = Paint()
         ..filterQuality = FilterQuality.high
         ..isAntiAlias = true;
-      final signedSize = _signedSize;
-      canvas.save();
-      canvas.translate(element.position.x, element.position.y);
-      canvas.scale(signedSize.dx < 0 ? -1 : 1, signedSize.dy < 0 ? -1 : 1);
-      canvas.drawImageRect(
-        image,
-        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-        Rect.fromLTWH(0, 0, signedSize.dx.abs(), signedSize.dy.abs()),
-        paint,
+      final srcRect = Rect.fromLTRB(
+        image.width * lFrac,
+        image.height * tFrac,
+        image.width * (1.0 - rFrac),
+        image.height * (1.0 - bFrac),
       );
-      canvas.restore();
+      canvas.drawImageRect(image, srcRect, dstRect, paint);
     }
+
+    if (displayOptions.effectiveShowShadow && !dstRect.isEmpty) {
+      canvas.drawRect(
+        dstRect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 / max(transform.size, 0.25)
+          ..color = const Color(0x22000000),
+      );
+      if (displayOptions.layoutMode != PdfViewLayoutMode.singlePage) {
+        final isPairedLeft = switch (displayOptions.layoutMode) {
+          PdfViewLayoutMode.twoPageBook => element.page.isEven,
+          PdfViewLayoutMode.twoPageCover =>
+            element.page > 0 && element.page.isOdd,
+          PdfViewLayoutMode.singlePage => false,
+        };
+        final isPairedRight = switch (displayOptions.layoutMode) {
+          PdfViewLayoutMode.twoPageBook => element.page.isOdd,
+          PdfViewLayoutMode.twoPageCover =>
+            element.page > 0 && element.page.isEven,
+          PdfViewLayoutMode.singlePage => false,
+        };
+        final creaseWidth = min(18.0, dstRect.width * 0.04);
+        if (isPairedLeft && creaseWidth > 0) {
+          final creaseRect = Rect.fromLTWH(
+            dstRect.right - creaseWidth,
+            dstRect.top,
+            creaseWidth,
+            dstRect.height,
+          );
+          canvas.drawRect(
+            creaseRect,
+            Paint()
+              ..shader = ui.Gradient.linear(
+                creaseRect.centerLeft,
+                creaseRect.centerRight,
+                const [Color(0x00000000), Color(0x22000000)],
+              ),
+          );
+        } else if (isPairedRight && creaseWidth > 0) {
+          final creaseRect = Rect.fromLTWH(
+            dstRect.left,
+            dstRect.top,
+            creaseWidth,
+            dstRect.height,
+          );
+          canvas.drawRect(
+            creaseRect,
+            Paint()
+              ..shader = ui.Gradient.linear(
+                creaseRect.centerLeft,
+                creaseRect.centerRight,
+                const [Color(0x22000000), Color(0x00000000)],
+              ),
+          );
+        }
+      }
+    }
+
+    if (displayOptions.showCropGuides && !dstRect.isEmpty) {
+      canvas.drawRect(
+        dstRect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0 / max(transform.size, 0.25)
+          ..color = colorScheme?.primary ?? const Color(0xFFE53935),
+      );
+    }
+
+    canvas.restore();
   }
 
   @override

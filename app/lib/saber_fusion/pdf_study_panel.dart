@@ -10,6 +10,8 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import 'ai_tutor_tab.dart';
 import 'mistake_bank_tab.dart';
+import 'pdf_crop_tab.dart';
+import 'pdf_overview_dialog.dart';
 import 'pdf_study_service.dart';
 import 'study_state.dart';
 
@@ -260,6 +262,10 @@ class _PdfStudyPanelState extends State<PdfStudyPanel> {
                           _buildThumbnailsTab(docState, summary),
                         StudyPanelTab.search =>
                           _buildSearchTab(docState, summary),
+                        StudyPanelTab.crop => PdfCropTab(
+                          summary: summary,
+                          pdfDocument: _cachedPdfDoc,
+                        ),
                         StudyPanelTab.aiTutor => const AiTutorTab(),
                         StudyPanelTab.mistakes => const MistakeBankTab(),
                       },
@@ -468,6 +474,15 @@ class _PdfStudyPanelState extends State<PdfStudyPanel> {
               FilledButton.tonal(
                 onPressed: () => _handleJumpSubmit(placements),
                 child: const Text('跳转'),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: '全屏总览网格',
+                onPressed: () => unawaited(showPdfOverviewDialog(context)),
+                icon: const PhosphorIcon(
+                  PhosphorIconsLight.squaresFour,
+                  size: 18,
+                ),
               ),
             ],
           ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,11 +8,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'color_filters.dart';
+import 'pdf_reading_models.dart';
 
 enum StudyPanelTab {
   toc,
   thumbnails,
   search,
+  crop,
   aiTutor,
   mistakes;
 
@@ -19,6 +22,7 @@ enum StudyPanelTab {
     StudyPanelTab.toc => '目录',
     StudyPanelTab.thumbnails => '页码',
     StudyPanelTab.search => '搜题',
+    StudyPanelTab.crop => '页边距裁剪',
     StudyPanelTab.aiTutor => 'AI助教',
     StudyPanelTab.mistakes => '错题本',
   };
@@ -87,6 +91,7 @@ class StudyModeState {
   final bool aiSnippingMode;
   final SnippedRegion? pendingSnip;
   final AiTutorConfig aiConfig;
+  final PdfMarginCropConfig pdfCrop;
 
   const StudyModeState({
     this.colorMode = CanvasColorFilterMode.normal,
@@ -97,6 +102,7 @@ class StudyModeState {
     this.aiSnippingMode = false,
     this.pendingSnip,
     this.aiConfig = const AiTutorConfig(),
+    this.pdfCrop = const PdfMarginCropConfig(),
   });
 
   static const _unset = Object();
@@ -110,6 +116,7 @@ class StudyModeState {
     bool? aiSnippingMode,
     Object? pendingSnip = _unset,
     AiTutorConfig? aiConfig,
+    PdfMarginCropConfig? pdfCrop,
   }) => StudyModeState(
     colorMode: colorMode ?? this.colorMode,
     perfectHighlighter: perfectHighlighter ?? this.perfectHighlighter,
@@ -121,6 +128,7 @@ class StudyModeState {
         ? this.pendingSnip
         : pendingSnip as SnippedRegion?,
     aiConfig: aiConfig ?? this.aiConfig,
+    pdfCrop: pdfCrop ?? this.pdfCrop,
   );
 }
 
@@ -131,6 +139,7 @@ class StudyModeCubit extends Cubit<StudyModeState> {
   static const _prefAiBaseUrl = 'saber_fusion.ai_base_url';
   static const _prefAiModel = 'saber_fusion.ai_model';
   static const _prefAiPrompt = 'saber_fusion.ai_system_prompt';
+  static const _prefPdfCrop = 'saber_fusion.pdf_crop_v1';
   static const _secureAiKey = 'saber_fusion.ai_api_key';
 
   final FlutterSecureStorage _secureStorage;
@@ -156,6 +165,16 @@ class StudyModeCubit extends Cubit<StudyModeState> {
       final model = prefs.getString(_prefAiModel) ?? AiTutorConfig.defaultModel;
       final prompt =
           prefs.getString(_prefAiPrompt) ?? AiTutorConfig.defaultSystemPrompt;
+      var pdfCrop = const PdfMarginCropConfig();
+      final cropRaw = prefs.getString(_prefPdfCrop);
+      if (cropRaw != null && cropRaw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(cropRaw);
+          if (decoded is Map<String, dynamic>) {
+            pdfCrop = PdfMarginCropConfig.fromJson(decoded);
+          }
+        } catch (_) {}
+      }
       var apiKey = '';
       try {
         apiKey = await _secureStorage.read(key: _secureAiKey) ?? '';
@@ -166,6 +185,7 @@ class StudyModeCubit extends Cubit<StudyModeState> {
             colorMode: colorMode,
             perfectHighlighter: perfectHighlighter,
             studyToolbarMode: studyToolbarMode,
+            pdfCrop: pdfCrop,
             aiConfig: AiTutorConfig(
               baseUrl: baseUrl,
               model: model,
@@ -259,6 +279,40 @@ class StudyModeCubit extends Cubit<StudyModeState> {
         await _secureStorage.write(key: _secureAiKey, value: config.apiKey);
       }
     } catch (_) {}
+  }
+
+  void updatePdfCrop(PdfMarginCropConfig next, {bool persist = true}) {
+    emit(state.copyWith(pdfCrop: next));
+    if (persist) {
+      unawaited(
+        _savePref((p) => p.setString(_prefPdfCrop, jsonEncode(next.toJson()))),
+      );
+    }
+  }
+
+  void setPdfLayoutMode(PdfViewLayoutMode mode) {
+    updatePdfCrop(state.pdfCrop.copyWith(layoutMode: mode));
+  }
+
+  void toggleTwoPageBookMode() {
+    final nextMode = switch (state.pdfCrop.layoutMode) {
+      PdfViewLayoutMode.singlePage => PdfViewLayoutMode.twoPageBook,
+      PdfViewLayoutMode.twoPageBook => PdfViewLayoutMode.twoPageCover,
+      PdfViewLayoutMode.twoPageCover => PdfViewLayoutMode.singlePage,
+    };
+    setPdfLayoutMode(nextMode);
+  }
+
+  void toggleSeamlessLongDoc() {
+    updatePdfCrop(
+      state.pdfCrop.copyWith(seamlessLongDoc: !state.pdfCrop.seamlessLongDoc),
+    );
+  }
+
+  void resetPdfCrop() {
+    updatePdfCrop(
+      PdfMarginCropConfig(layoutMode: state.pdfCrop.layoutMode),
+    );
   }
 }
 

@@ -13,6 +13,10 @@ import 'package:butterfly/dialogs/collaboration/dialog.dart';
 import 'package:butterfly/main.dart';
 import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
 import 'package:butterfly/saber_fusion/lan_sync_dialog.dart';
+import 'package:butterfly/saber_fusion/multi_pdf_window_cubit.dart';
+import 'package:butterfly/saber_fusion/multi_pdf_window_layer.dart';
+import 'package:butterfly/saber_fusion/pdf_canvas_reflow_service.dart';
+import 'package:butterfly/saber_fusion/pdf_overview_dialog.dart';
 import 'package:butterfly/saber_fusion/study_state.dart';
 import 'package:butterfly/services/import.dart';
 import 'package:butterfly/services/network.dart';
@@ -955,6 +959,41 @@ class MainPopupMenu extends StatelessWidget {
                                       studyCubit.openStudyPanel(StudyPanelTab.toc),
                                   child: const Text('教材目录 / 搜题 / 错题本'),
                                 ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.columns,
+                                  ),
+                                  onPressed: () =>
+                                      PdfCanvasReflowService.toggleBookSpreadMode(
+                                        context,
+                                      ),
+                                  child: const Text('切换书本双页视图'),
+                                ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.squaresFour,
+                                  ),
+                                  onPressed: () =>
+                                      showPdfOverviewDialog(context),
+                                  child: const Text('全屏页面总览（网格选页）'),
+                                ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.crop,
+                                  ),
+                                  onPressed: () =>
+                                      studyCubit.openStudyPanel(StudyPanelTab.crop),
+                                  child: const Text('侧边栏：页边距裁剪 / 无缝长文档'),
+                                ),
+                                if (maybeMultiPdfWindowCubit(context) != null)
+                                  MenuItemButton(
+                                    leadingIcon: const PhosphorIcon(
+                                      PhosphorIconsLight.appWindow,
+                                    ),
+                                    onPressed: () =>
+                                        openMultiPdfWindowEntry(context),
+                                    child: const Text('多 PDF 窗口化（QQ 式悬浮窗）'),
+                                  ),
                                 MenuItemButton(
                                   leadingIcon: const PhosphorIcon(
                                     PhosphorIconsLight.sparkle,

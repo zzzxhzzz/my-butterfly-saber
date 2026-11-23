@@ -32,6 +32,8 @@ import 'package:perfect_freehand/perfect_freehand.dart' as freehand;
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:xml/xml.dart';
 
+import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
+
 import '../cubits/transform.dart';
 import '../helpers/xml.dart';
 import '../models/label.dart';

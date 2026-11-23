@@ -105,13 +105,15 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
     final state = widget.documentState;
     final studyCubit = maybeStudyModeCubit(context);
     if (studyCubit != null) {
-      context.read<RendererCubit>().perfectHighlighter =
-          studyCubit.state.perfectHighlighter;
+      final rendererCubit = context.read<RendererCubit>();
+      rendererCubit.perfectHighlighter = studyCubit.state.perfectHighlighter;
+      rendererCubit.pdfDisplayOptions = studyCubit.state.pdfCrop;
     }
 
     Widget buildCanvas({
       required CameraTransform visibleTransform,
       required bool perfectHighlighter,
+      required PdfMarginCropConfig pdfDisplayOptions,
     }) {
       return RepaintBoundary(
         key: widget.canvasCaptureKey,
@@ -132,6 +134,7 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
                   currentArea: state.currentArea,
                   colorScheme: ColorScheme.of(context),
                   perfectHighlighter: perfectHighlighter,
+                  pdfDisplayOptions: pdfDisplayOptions,
                 ),
                 isComplex: true,
               ),
@@ -182,17 +185,20 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
               return buildCanvas(
                 visibleTransform: visibleTransform,
                 perfectHighlighter: true,
+                pdfDisplayOptions: const PdfMarginCropConfig.vanilla(),
               );
             }
             return BlocBuilder<StudyModeCubit, StudyModeState>(
               bloc: studyCubit,
               buildWhen: (previous, current) =>
                   previous.colorMode != current.colorMode ||
-                  previous.perfectHighlighter != current.perfectHighlighter,
+                  previous.perfectHighlighter != current.perfectHighlighter ||
+                  previous.pdfCrop != current.pdfCrop,
               builder: (context, studyState) {
                 final canvas = buildCanvas(
                   visibleTransform: visibleTransform,
                   perfectHighlighter: studyState.perfectHighlighter,
+                  pdfDisplayOptions: studyState.pdfCrop,
                 );
                 final filter = canvasColorFilterFor(studyState.colorMode);
                 if (filter == null) return canvas;
@@ -208,11 +214,21 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
     return BlocListener<StudyModeCubit, StudyModeState>(
       bloc: studyCubit,
       listenWhen: (previous, current) =>
-          previous.perfectHighlighter != current.perfectHighlighter,
+          previous.perfectHighlighter != current.perfectHighlighter ||
+          previous.pdfCrop != current.pdfCrop,
       listener: (context, studyState) {
-        context.read<RendererCubit>().perfectHighlighter =
-            studyState.perfectHighlighter;
-        unawaited(context.read<DocumentBloc>().bake(reset: true));
+        final controller = context.read<EditorController>();
+        final rendererCubit = context.read<RendererCubit>();
+        rendererCubit.perfectHighlighter = studyState.perfectHighlighter;
+        rendererCubit.pdfDisplayOptions = studyState.pdfCrop;
+        if (studyState.pdfCrop.showCropGuides) {
+          if (rendererCubit.state.cameraViewport.baked) {
+            unawaited(rendererCubit.unbake(controller, state));
+          }
+          rendererCubit.notifyRepaint();
+        } else {
+          unawaited(context.read<DocumentBloc>().bake(reset: true));
+        }
       },
       child: child,
     );

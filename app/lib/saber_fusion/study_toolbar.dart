@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:butterfly/bloc/document_bloc.dart';
 import 'package:butterfly/cubits/editor_controller.dart';
@@ -11,6 +12,11 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'lan_sync_cubit.dart';
 import 'lan_sync_dialog.dart';
 import 'lan_sync_models.dart';
+import 'multi_pdf_window_cubit.dart';
+import 'multi_pdf_window_layer.dart';
+import 'pdf_canvas_reflow_service.dart';
+import 'pdf_overview_dialog.dart';
+import 'pdf_reading_models.dart';
 import 'study_state.dart';
 
 class SaberQuickStrip extends StatelessWidget {
@@ -27,144 +33,263 @@ class SaberQuickStrip extends StatelessWidget {
           previous.colorMode != current.colorMode ||
           previous.studyToolbarMode != current.studyToolbarMode ||
           previous.studyPanelOpen != current.studyPanelOpen ||
-          previous.aiSnippingMode != current.aiSnippingMode,
+          previous.aiSnippingMode != current.aiSnippingMode ||
+          previous.pdfCrop != current.pdfCrop,
       builder: (context, state) {
         final colorScheme = ColorScheme.of(context);
-        return Card.outlined(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: state.studyToolbarMode
-                      ? '退出极简刷题栏'
-                      : '极简刷题工具栏 (Saber笔盒)',
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
-                  padding: EdgeInsets.zero,
-                  isSelected: state.studyToolbarMode,
-                  style: state.studyToolbarMode
-                      ? IconButton.styleFrom(
-                          backgroundColor: colorScheme.primaryContainer,
-                          foregroundColor: colorScheme.onPrimaryContainer,
-                        )
-                      : null,
-                  icon: PhosphorIcon(
-                    state.studyToolbarMode
-                        ? PhosphorIconsFill.pen
-                        : PhosphorIconsLight.pencilSimpleLine,
-                    size: 18,
-                  ),
-                  onPressed: studyCubit.toggleStudyToolbarMode,
+        final isBookMode =
+            state.pdfCrop.layoutMode != PdfViewLayoutMode.singlePage;
+        final cropActive =
+            state.pdfCrop.hasCrop || state.pdfCrop.seamlessLongDoc;
+        final maxW = max(220.0, MediaQuery.sizeOf(context).width - 24.0);
+
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxW),
+          child: Card.outlined(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: state.studyToolbarMode
+                          ? '退出极简刷题栏'
+                          : '极简刷题工具栏 (Saber笔盒)',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      isSelected: state.studyToolbarMode,
+                      style: state.studyToolbarMode
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.primaryContainer,
+                              foregroundColor: colorScheme.onPrimaryContainer,
+                            )
+                          : null,
+                      icon: PhosphorIcon(
+                        state.studyToolbarMode
+                            ? PhosphorIconsFill.pen
+                            : PhosphorIconsLight.pencilSimpleLine,
+                        size: 18,
+                      ),
+                      onPressed: studyCubit.toggleStudyToolbarMode,
+                    ),
+                    IconButton(
+                      tooltip: '护眼反色：${state.colorMode.displayName}',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      isSelected: state.colorMode.index != 0,
+                      style: state.colorMode.index != 0
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.secondaryContainer,
+                              foregroundColor:
+                                  colorScheme.onSecondaryContainer,
+                            )
+                          : null,
+                      icon: PhosphorIcon(state.colorMode.icon, size: 18),
+                      onPressed: studyCubit.cycleColorMode,
+                    ),
+                    IconButton(
+                      tooltip: isBookMode ? '切回单页连续视图' : '书本双页视图',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      isSelected: isBookMode,
+                      style: isBookMode
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.primaryContainer,
+                              foregroundColor: colorScheme.onPrimaryContainer,
+                            )
+                          : null,
+                      icon: const PhosphorIcon(
+                        PhosphorIconsLight.columns,
+                        size: 18,
+                      ),
+                      onPressed: () =>
+                          PdfCanvasReflowService.toggleBookSpreadMode(context),
+                    ),
+                    IconButton(
+                      tooltip: '全屏页面总览（网格选页）',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      icon: const PhosphorIcon(
+                        PhosphorIconsLight.squaresFour,
+                        size: 18,
+                      ),
+                      onPressed: () =>
+                          unawaited(showPdfOverviewDialog(context)),
+                    ),
+                    IconButton(
+                      tooltip: '侧边栏：页边距裁剪 / 无缝长文档',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      isSelected:
+                          (state.studyPanelOpen &&
+                              state.activeTab == StudyPanelTab.crop) ||
+                          cropActive,
+                      style: cropActive
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.secondaryContainer,
+                              foregroundColor:
+                                  colorScheme.onSecondaryContainer,
+                            )
+                          : null,
+                      icon: const PhosphorIcon(
+                        PhosphorIconsLight.crop,
+                        size: 18,
+                      ),
+                      onPressed: () =>
+                          studyCubit.toggleStudyPanel(StudyPanelTab.crop),
+                    ),
+                    IconButton(
+                      tooltip: '教材目录 / 搜题 / 错题本',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      isSelected: state.studyPanelOpen,
+                      style: state.studyPanelOpen
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.primaryContainer,
+                              foregroundColor: colorScheme.onPrimaryContainer,
+                            )
+                          : null,
+                      icon: const PhosphorIcon(
+                        PhosphorIconsLight.bookOpen,
+                        size: 18,
+                      ),
+                      onPressed: () => studyCubit.toggleStudyPanel(),
+                    ),
+                    IconButton(
+                      tooltip: '框选题目问 AI',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      isSelected: state.aiSnippingMode,
+                      style: state.aiSnippingMode
+                          ? IconButton.styleFrom(
+                              backgroundColor: colorScheme.tertiaryContainer,
+                              foregroundColor: colorScheme.onTertiaryContainer,
+                            )
+                          : null,
+                      icon: const PhosphorIcon(
+                        PhosphorIconsLight.sparkle,
+                        size: 18,
+                      ),
+                      onPressed: () =>
+                          studyCubit.setAiSnippingMode(!state.aiSnippingMode),
+                    ),
+                    if (maybeMultiPdfWindowCubit(context) case final winCubit?)
+                      BlocBuilder<MultiPdfWindowCubit, MultiPdfWindowState>(
+                        bloc: winCubit,
+                        buildWhen: (prev, curr) =>
+                            prev.windows.length != curr.windows.length ||
+                            prev.dockVisible != curr.dockVisible,
+                        builder: (context, winState) {
+                          final active =
+                              winState.windows.isNotEmpty ||
+                              winState.dockVisible;
+                          return IconButton(
+                            tooltip: '多 PDF 窗口化（QQ 式悬浮小窗）',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 32,
+                              height: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                            isSelected: active,
+                            style: active
+                                ? IconButton.styleFrom(
+                                    backgroundColor:
+                                        colorScheme.primaryContainer,
+                                    foregroundColor:
+                                        colorScheme.onPrimaryContainer,
+                                  )
+                                : null,
+                            icon: Badge(
+                              isLabelVisible: winState.windows.isNotEmpty,
+                              label: Text('${winState.windows.length}'),
+                              child: const PhosphorIcon(
+                                PhosphorIconsLight.appWindow,
+                                size: 18,
+                              ),
+                            ),
+                            onPressed: () => openMultiPdfWindowEntry(context),
+                          );
+                        },
+                      ),
+                    if (maybeLanSyncCubit(context) case final lanCubit?)
+                      BlocBuilder<LanSyncCubit, LanSyncState>(
+                        bloc: lanCubit,
+                        buildWhen: (previous, current) =>
+                            previous.account.isSignedIn !=
+                                current.account.isSignedIn ||
+                            previous.peers.length != current.peers.length ||
+                            previous.syncing != current.syncing,
+                        builder: (context, syncState) {
+                          final online =
+                              syncState.account.isSignedIn &&
+                              syncState.peers.isNotEmpty;
+                          return IconButton(
+                            tooltip: !syncState.account.isSignedIn
+                                ? '双端局域网同步账号'
+                                : online
+                                ? '局域网已连接 ${syncState.peers.length} 台设备（点击同步/查页码）'
+                                : '局域网同步监听中',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 32,
+                              height: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                            isSelected: online,
+                            style: online
+                                ? IconButton.styleFrom(
+                                    backgroundColor:
+                                        colorScheme.primaryContainer,
+                                    foregroundColor:
+                                        colorScheme.onPrimaryContainer,
+                                  )
+                                : null,
+                            icon: PhosphorIcon(
+                              syncState.account.isSignedIn
+                                  ? PhosphorIconsLight.wifiHigh
+                                  : PhosphorIconsLight.cloud,
+                              size: 18,
+                            ),
+                            onPressed: () =>
+                                unawaited(showLanSyncDialog(context)),
+                          );
+                        },
+                      ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: '护眼反色：${state.colorMode.displayName}',
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
-                  padding: EdgeInsets.zero,
-                  isSelected: state.colorMode.index != 0,
-                  style: state.colorMode.index != 0
-                      ? IconButton.styleFrom(
-                          backgroundColor: colorScheme.secondaryContainer,
-                          foregroundColor: colorScheme.onSecondaryContainer,
-                        )
-                      : null,
-                  icon: PhosphorIcon(state.colorMode.icon, size: 18),
-                  onPressed: studyCubit.cycleColorMode,
-                ),
-                IconButton(
-                  tooltip: '教材目录 / 搜题 / 错题本',
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
-                  padding: EdgeInsets.zero,
-                  isSelected: state.studyPanelOpen,
-                  style: state.studyPanelOpen
-                      ? IconButton.styleFrom(
-                          backgroundColor: colorScheme.primaryContainer,
-                          foregroundColor: colorScheme.onPrimaryContainer,
-                        )
-                      : null,
-                  icon: const PhosphorIcon(
-                    PhosphorIconsLight.bookOpen,
-                    size: 18,
-                  ),
-                  onPressed: () => studyCubit.toggleStudyPanel(),
-                ),
-                IconButton(
-                  tooltip: '框选题目问 AI',
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
-                  padding: EdgeInsets.zero,
-                  isSelected: state.aiSnippingMode,
-                  style: state.aiSnippingMode
-                      ? IconButton.styleFrom(
-                          backgroundColor: colorScheme.tertiaryContainer,
-                          foregroundColor: colorScheme.onTertiaryContainer,
-                        )
-                      : null,
-                  icon: const PhosphorIcon(
-                    PhosphorIconsLight.sparkle,
-                    size: 18,
-                  ),
-                  onPressed: () =>
-                      studyCubit.setAiSnippingMode(!state.aiSnippingMode),
-                ),
-                if (maybeLanSyncCubit(context) case final lanCubit?)
-                  BlocBuilder<LanSyncCubit, LanSyncState>(
-                    bloc: lanCubit,
-                    buildWhen: (previous, current) =>
-                        previous.account.isSignedIn !=
-                            current.account.isSignedIn ||
-                        previous.peers.length != current.peers.length ||
-                        previous.syncing != current.syncing,
-                    builder: (context, syncState) {
-                      final online =
-                          syncState.account.isSignedIn &&
-                          syncState.peers.isNotEmpty;
-                      return IconButton(
-                        tooltip: !syncState.account.isSignedIn
-                            ? '双端局域网同步账号'
-                            : online
-                            ? '局域网已连接 ${syncState.peers.length} 台设备（点击同步/查页码）'
-                            : '局域网同步监听中',
-                        visualDensity: VisualDensity.compact,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 32,
-                          height: 32,
-                        ),
-                        padding: EdgeInsets.zero,
-                        isSelected: online,
-                        style: online
-                            ? IconButton.styleFrom(
-                                backgroundColor: colorScheme.primaryContainer,
-                                foregroundColor: colorScheme.onPrimaryContainer,
-                              )
-                            : null,
-                        icon: PhosphorIcon(
-                          syncState.account.isSignedIn
-                              ? PhosphorIconsLight.wifiHigh
-                              : PhosphorIconsLight.cloud,
-                          size: 18,
-                        ),
-                        onPressed: () => unawaited(showLanSyncDialog(context)),
-                      );
-                    },
-                  ),
-              ],
+              ),
             ),
           ),
         );
@@ -519,6 +644,63 @@ class SaberStudyToolbar extends StatelessWidget {
                                   .read<StudyModeCubit>()
                                   .cycleColorMode(),
                             ),
+                            IconButton(
+                              tooltip:
+                                  studyState.pdfCrop.layoutMode !=
+                                      PdfViewLayoutMode.singlePage
+                                  ? '切回单页连续视图'
+                                  : '书本双页视图',
+                              visualDensity: VisualDensity.compact,
+                              isSelected:
+                                  studyState.pdfCrop.layoutMode !=
+                                  PdfViewLayoutMode.singlePage,
+                              icon: const PhosphorIcon(
+                                PhosphorIconsLight.columns,
+                                size: 18,
+                              ),
+                              onPressed: () =>
+                                  PdfCanvasReflowService.toggleBookSpreadMode(
+                                    context,
+                                  ),
+                            ),
+                            IconButton(
+                              tooltip: '全屏页面总览',
+                              visualDensity: VisualDensity.compact,
+                              icon: const PhosphorIcon(
+                                PhosphorIconsLight.squaresFour,
+                                size: 18,
+                              ),
+                              onPressed: () =>
+                                  unawaited(showPdfOverviewDialog(context)),
+                            ),
+                            IconButton(
+                              tooltip: '侧边栏：页边距裁剪 / 无缝长文档',
+                              visualDensity: VisualDensity.compact,
+                              isSelected:
+                                  (studyState.studyPanelOpen &&
+                                      studyState.activeTab ==
+                                          StudyPanelTab.crop) ||
+                                  studyState.pdfCrop.hasCrop ||
+                                  studyState.pdfCrop.seamlessLongDoc,
+                              icon: const PhosphorIcon(
+                                PhosphorIconsLight.crop,
+                                size: 18,
+                              ),
+                              onPressed: () => context
+                                  .read<StudyModeCubit>()
+                                  .toggleStudyPanel(StudyPanelTab.crop),
+                            ),
+                            if (maybeMultiPdfWindowCubit(context) != null)
+                              IconButton(
+                                tooltip: '多 PDF 窗口化（QQ 式悬浮窗）',
+                                visualDensity: VisualDensity.compact,
+                                icon: const PhosphorIcon(
+                                  PhosphorIconsLight.appWindow,
+                                  size: 18,
+                                ),
+                                onPressed: () =>
+                                    openMultiPdfWindowEntry(context),
+                              ),
                             IconButton(
                               tooltip: '教材目录 / 搜题 / 错题本',
                               visualDensity: VisualDensity.compact,

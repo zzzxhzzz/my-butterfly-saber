@@ -28,6 +28,7 @@ import 'package:talker_flutter/talker_flutter.dart';
 
 import 'cubits/settings.dart';
 import 'saber_fusion/lan_sync_cubit.dart';
+import 'saber_fusion/multi_pdf_window_cubit.dart';
 import 'saber_fusion/study_state.dart';
 import 'embed/embedding.dart';
 import 'settings/home.dart';
@@ -362,6 +363,9 @@ class ButterflyApp extends StatelessWidget {
           ),
           BlocProvider(
             create: (context) => LanSyncCubit()..load(),
+          ),
+          BlocProvider(
+            create: (context) => MultiPdfWindowCubit(),
           ),
         ],
         child: _buildApp(lightDynamic, darkDynamic),

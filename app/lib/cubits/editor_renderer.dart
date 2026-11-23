@@ -134,6 +134,9 @@ class RendererCubit(
   Set<Renderer<PadElement>>? _indexedUnbaked;
   bool _useDirectRendering = kIsWeb && !kIsWasm;
   bool perfectHighlighter = true;
+  PdfMarginCropConfig pdfDisplayOptions = const PdfMarginCropConfig.vanilla();
+
+  void notifyRepaint() => _repaint.refresh();
 
   @visibleForTesting
   void enableDirectRendering() => _useDirectRendering = true;
@@ -714,6 +717,7 @@ class RendererCubit(
         renderBaked: false,
         renderBakedLayers: false,
         perfectHighlighter: perfectHighlighter,
+        pdfDisplayOptions: pdfDisplayOptions,
         invisibleLayers: invisibleLayers,
       ).paint(canvas, size);
 
@@ -777,6 +781,7 @@ class RendererCubit(
           renderBackground: false,
           renderBaked: false,
           perfectHighlighter: perfectHighlighter,
+          pdfDisplayOptions: pdfDisplayOptions,
           invisibleLayers: invisibleLayers,
         ).paint(canvas, size);
         final picture = recorder.endRecording();

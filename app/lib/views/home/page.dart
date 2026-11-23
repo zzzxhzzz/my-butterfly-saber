@@ -10,6 +10,8 @@ import 'package:butterfly/models/defaults.dart';
 import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
 import 'package:butterfly/saber_fusion/lan_sync_dialog.dart';
 import 'package:butterfly/saber_fusion/lan_sync_models.dart';
+import 'package:butterfly/saber_fusion/multi_pdf_window_cubit.dart';
+import 'package:butterfly/saber_fusion/multi_pdf_window_layer.dart';
 import 'package:butterfly/settings/home.dart';
 import 'package:butterfly/views/files/card.dart';
 import 'package:butterfly/views/files/recent.dart';
@@ -116,6 +118,7 @@ class _HomePageState extends State<HomePage> {
                       tooltip: AppLocalizations.of(context).settings,
                       onPressed: () => openSettings(context),
                     ),
+                  _buildMultiPdfWindowButton(context),
                   _buildLanSyncButton(context),
                   if (!isMobile) _getBannerVisibilityWidget(context, settings),
                 ],
@@ -309,8 +312,14 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
             );
+            final wrappedScaffold = Stack(
+              children: [
+                scaffold,
+                const Positioned.fill(child: MultiPdfWindowLayer()),
+              ],
+            );
             final lanCubit = maybeLanSyncCubit(context);
-            if (lanCubit == null) return scaffold;
+            if (lanCubit == null) return wrappedScaffold;
             return BlocListener<LanSyncCubit, LanSyncState>(
               bloc: lanCubit,
               listenWhen: (previous, current) =>
@@ -328,7 +337,7 @@ class _HomePageState extends State<HomePage> {
                   lanCubit.clearRecentSyncedPaths();
                 }
               },
-              child: scaffold,
+              child: wrappedScaffold,
             );
           },
         );
@@ -367,6 +376,32 @@ Widget _buildLanSyncButton(BuildContext context) {
           ),
         ),
         onPressed: () => unawaited(showLanSyncDialog(context)),
+      );
+    },
+  );
+}
+
+Widget _buildMultiPdfWindowButton(BuildContext context) {
+  final windowCubit = maybeMultiPdfWindowCubit(context);
+  if (windowCubit == null) return const SizedBox.shrink();
+  return BlocBuilder<MultiPdfWindowCubit, MultiPdfWindowState>(
+    bloc: windowCubit,
+    buildWhen: (previous, current) =>
+        previous.windows.length != current.windows.length ||
+        previous.dockVisible != current.dockVisible,
+    builder: (context, winState) {
+      final count = winState.windows.length;
+      return IconButton(
+        tooltip: count > 0
+            ? '多 PDF 窗口化（当前打开 $count 个小窗）'
+            : '多 PDF 窗口化（QQ 式悬浮多开 PDF）',
+        isSelected: count > 0 || winState.dockVisible,
+        icon: Badge(
+          isLabelVisible: count > 0,
+          label: Text('$count'),
+          child: const PhosphorIcon(PhosphorIconsLight.appWindow),
+        ),
+        onPressed: () => openMultiPdfWindowEntry(context),
       );
     },
   );

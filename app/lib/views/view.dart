@@ -21,6 +21,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:butterfly/saber_fusion/color_filters.dart';
+import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
 import 'package:butterfly/saber_fusion/study_state.dart';
 
 import '../view_painter.dart';
