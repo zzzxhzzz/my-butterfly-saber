@@ -117,7 +117,23 @@ Future<void> main([List<String> args = const []]) async {
 
 const kUnsupportedLanguages = [];
 
-List<Locale> getLocales() => AppLocalizations.supportedLocales;
+List<Locale> getLocales() {
+  final locales = List<Locale>.from(AppLocalizations.supportedLocales);
+  final zhIndex = locales.indexWhere(
+    (l) =>
+        l.languageCode == 'zh' &&
+        l.scriptCode == null &&
+        l.countryCode == null,
+  );
+  final zhHantIndex = locales.indexWhere(
+    (l) => l.languageCode == 'zh' && l.scriptCode == 'Hant',
+  );
+  if (zhIndex > zhHantIndex && zhHantIndex >= 0) {
+    final zh = locales.removeAt(zhIndex);
+    locales.insert(zhHantIndex, zh);
+  }
+  return locales;
+}
 
 class ButterflyApp extends StatelessWidget {
   final String initialLocation;
@@ -360,7 +376,23 @@ class ButterflyApp extends StatelessWidget {
           previous.highContrast != current.highContrast,
       builder: (context, state) => MaterialApp.router(
         debugShowCheckedModeBanner: debugShowCheckedModeBanner,
-        locale: state.locale,
+        locale: state.locale ?? const Locale('zh'),
+        localeListResolutionCallback: (locales, supportedLocales) {
+          if (locales != null && locales.isNotEmpty) {
+            final primary = locales.first;
+            if (primary.languageCode == 'zh') {
+              final isTraditional =
+                  primary.scriptCode == 'Hant' ||
+                  primary.countryCode == 'TW' ||
+                  primary.countryCode == 'HK' ||
+                  primary.countryCode == 'MO';
+              if (!isTraditional) {
+                return const Locale('zh');
+              }
+            }
+          }
+          return basicLocaleListResolution(locales, supportedLocales);
+        },
         title: applicationName,
         restorationScopeId: 'app',
         routeInformationProvider: _router.routeInformationProvider,

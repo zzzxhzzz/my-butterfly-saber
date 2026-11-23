@@ -24,7 +24,7 @@
   },
   "off": "关闭",
   "canvas": "画布",
-  "interface": "接口",
+  "interface": "界面",
   "@view": {
     "description": "View mode or menu"
   },
@@ -41,8 +41,8 @@
   "@zoom": {
     "description": "Zoom action or level"
   },
-  "zoomIn": "缩放",
-  "zoomOut": "缩放",
+  "zoomIn": "放大",
+  "zoomOut": "缩小",
   "resetZoom": "重置缩放",
   "calibratedZoom": "校准缩放",
   "calibratedZoomDescription": "使用您的显示校准使100%的缩放匹配文档的打印大小。",
@@ -132,8 +132,8 @@
   "@box": {
     "description": "Box shape"
   },
-  "locale": "本地化",
-  "systemLocale": "系统区域设置",
+  "locale": "语言",
+  "systemLocale": "跟随系统（默认简体中文）",
   "information": "信息",
   "license": "许可协议",
   "imprint": "图形",
@@ -179,9 +179,9 @@
   "gradient": "渐变",
   "gradientType": "渐变类型",
   "linear": "线性",
-  "radial": "Radial",
-  "tint": "Tint",
-  "blur": "Blur",
+  "radial": "径向",
+  "tint": "色调",
+  "blur": "模糊",
   "double": "双划线",
   "dotted": "虚线",
   "dottedDark": "暗虚线",
@@ -205,7 +205,7 @@
     "description": "Share action"
   },
   "spacing": "间距",
-  "padding": "Padding",
+  "padding": "内边距",
   "@padding": {
     "description": "Padding around an exported image"
   },
@@ -273,7 +273,7 @@
   "shiftKey": "Shift",
   "altKey": "Alt",
   "copyVersion": "复制版本",
-  "input": "Input",
+  "input": "输入",
   "@input": {
     "description": "Input settings"
   },
@@ -406,7 +406,7 @@
   "createTemplateContent": "您真的想要从此文档创建一个模板吗？原始文档将被删除。",
   "fileName": "文件名称",
   "defaultFileName": "默认文件名",
-  "templateFileNameDescription": "Documents opened from the template picker are saved automatically with this name. Templates without a name use the default configured in Data settings. Combine your own text with {dateExample} and {timeExample}. Characters that are not allowed in file names will be rejected.",
+  "templateFileNameDescription": "从模板选择器打开的文档将自动使用此名称保存。未命名的模板将使用“数据”设置中的默认名称。可以将自定义文本与 {dateExample} 和 {timeExample} 组合使用。不允许用于文件名的字符将被拒绝。",
   "@templateFileNameDescription": {
     "placeholders": {
       "dateExample": {
@@ -426,7 +426,7 @@
   },
   "reallyReplace": "您真的想要替换模板吗？此操作不能撤消！",
   "defaultTemplate": "默认模板",
-  "insert": "Insert",
+  "insert": "插入",
   "@insert": {
     "description": "Insert action"
   },
@@ -472,7 +472,7 @@
   "@text": {
     "description": "Text tool"
   },
-  "welcome": "",
+  "welcome": "你好，欢迎使用 Linwood Butterfly {codeName}",
   "@welcome": {
     "placeholders": {
       "codeName": {
@@ -593,12 +593,12 @@
   "@url": {
     "description": "URL field"
   },
-  "webDavUrlDescription": "Copy the full WebDAV address from your storage provider. For Nextcloud, open Files settings and copy the WebDAV URL.\n\nExample: https://cloud.example.com/remote.php/dav/files/USERNAME/",
+  "webDavUrlDescription": "从存储服务商处复制完整的 WebDAV 地址。对于 Nextcloud，请打开“文件”设置并复制 WebDAV 链接。\n\n示例：https://cloud.example.com/remote.php/dav/files/USERNAME/",
   "connectionUsernameDescription": "输入您的 WebDAV 帐户的登录名。对于以 /files/USERNAME/结尾的下一个云端URL，请使用替代USERNAME 显示的值。",
   "connectionPasswordDescription": "使用您的 WebDAV 密码或您的提供商的应用密码。 对于下一个云端，打开个人设置 -> 安全，创建一个名为Butterfly的应用程序密码并将其粘贴到这里。",
   "connectionSyncRootDescription": "保持整个文档目录的离线可用，包括其子文件夹。例如，启用此选项可以在没有互联网连接的情况下访问您的所有便笺。",
   "deleteConnection": "删除连接",
-  "deleteConnectionDescription": "Remove the connection \"{name}\" from Butterfly? Files stored in this connection will not be deleted.",
+  "deleteConnectionDescription": "从 Butterfly 中移除连接“{name}”？保存在此连接中的文件不会被删除。",
   "@deleteConnectionDescription": {
     "placeholders": {
       "name": {
@@ -611,9 +611,9 @@
   "password": "密码",
   "authenticationPassword": "验证密码",
   "documentEncryptionPassword": "文档加密密码",
-  "documentEncryptionPasswordDescription": "Choose a separate password to encrypt documents created in this connection. Use the same password on your other devices to open them. Leave empty to keep new documents unencrypted.\n\nExample: use a passphrase you can keep in your password manager.",
+  "documentEncryptionPasswordDescription": "为此连接中创建的文档设置单独的加密密码。在其他设备上使用相同密码即可打开。留空则不对新文档加密。\n\n示例：使用可保存在密码管理器中的口令。",
   "documentEncryptionEnabled": "文档加密已启用",
-  "reauthenticate": "Reauthenticate",
+  "reauthenticate": "重新认证",
   "addDocumentEncryptionPassword": "添加文档加密密码",
   "changeDocumentEncryptionPassword": "更改文档加密密码",
   "webNotSupported": "网络不支持",
@@ -621,7 +621,7 @@
   "symmetric": "对齐",
   "perSide": "每面",
   "directory": "目录",
-  "connectionNameDescription": "Choose a name to recognize this connection in Butterfly. It does not rename any folders on your device or server.\n\nExample: Nextcloud.",
+  "connectionNameDescription": "为此连接设置一个便于在 Butterfly 中识别的名称。不会重命名你设备或服务器上的任何文件夹。\n\n示例：Nextcloud。",
   "connectionDirectoryDescription": "在您的 WebDAV 存储库中选择一个基础文件夹，例如Butterfly。 注释默认情况下存储在其文档子文件夹中。更改高级下的子文件夹名称。",
   "localConnectionDirectoryDescription": "使用文件夹按钮选择此设备上的基本文件夹，或输入其完整路径，例如/path/to/folder或 C:\\path\\to\\folder。 注释默认情况下存储在其文档子文件夹中。更改高级下的子文件夹名称。",
   "connectionPathDescription": "选择存储此类型内容的地点。例如，文档使用基本文件夹的子文件夹。 使用基本文件夹本身，空值禁用此类型。 您也可以输入一个完整路径。对于没有基础文件夹的本地连接，每个启用类型需要一个完整路径。",
@@ -683,7 +683,7 @@
   "verticalBorder": "垂直边框",
   "rowHeight": "行高度",
   "columnWidth": "列宽度",
-  "border": "Border",
+  "border": "边框",
   "circle": "圆圈",
   "@circle": {
     "description": "Shape type"
@@ -753,8 +753,8 @@
   },
   "folderSynced": "文件夹已同步",
   "syncRootDirectory": "同步根目录",
-  "stylus": "Stylus",
-  "penOnlyInput": "Stylus only input",
+  "stylus": "手写笔",
+  "penOnlyInput": "仅手写笔输入",
   "@penOnlyInput": {
     "description": "Setting to enable stylus only input mode"
   },
@@ -771,7 +771,7 @@
   "inputGestures": "输入手势",
   "inputGesturesDescription": "让您用触摸手势移动和缩放画布，即使选择绘图工具。",
   "nativeTitleBar": "原生标题栏",
-  "mode": "Mode",
+  "mode": "模式",
   "syncMode": "同步模式",
   "connection": "连接",
   "always": "总是显示",
@@ -961,7 +961,7 @@
       }
     }
   },
-  "styles": "Styles",
+  "styles": "样式",
   "@styles": {
     "description": "Styles list"
   },
@@ -971,13 +971,13 @@
   "streamline": "流线化",
   "presentation": "列报内容",
   "simple": "简单的",
-  "createPresentation": "Create presentation",
+  "createPresentation": "创建演示文稿",
   "addSlide": "添加新幻灯片",
   "updateSlide": "更新幻灯片",
   "deleteSlide": "删除幻灯片",
   "transitionDuration": "过渡持续时间",
   "transitionDurationDescription": "相机移动到下一个幻灯片需要多长时间。在最后一个幻灯片上，当您添加一个新的幻灯片时会使用它。",
-  "transitionDurationValue": "{seconds}s transition",
+  "transitionDurationValue": "{seconds} 秒过渡",
   "@transitionDurationValue": {
     "placeholders": {
       "seconds": {
@@ -985,13 +985,13 @@
       }
     }
   },
-  "configureKeyframe": "Configure keyframe",
+  "configureKeyframe": "配置关键帧",
   "addKeyframe": "在此处添加关键帧",
   "updateKeyframe": "从当前摄像头更新",
   "deleteKeyframe": "删除关键帧",
   "markAsSlide": "标记为幻灯片",
   "removeSlideMarker": "删除幻灯片标记",
-  "frameValue": "Frame {frame}",
+  "frameValue": "第 {frame} 帧",
   "@frameValue": {
     "placeholders": {
       "frame": {
@@ -999,7 +999,7 @@
       }
     }
   },
-  "keyframeAtFrame": "Keyframe · Frame {frame}",
+  "keyframeAtFrame": "关键帧 · 第 {frame} 帧",
   "@keyframeAtFrame": {
     "placeholders": {
       "frame": {
@@ -1007,7 +1007,7 @@
       }
     }
   },
-  "slideAtFrame": "Slide {slide} · Frame {frame}",
+  "slideAtFrame": "幻灯片 {slide} · 第 {frame} 帧",
   "@slideAtFrame": {
     "placeholders": {
       "slide": {
@@ -1018,7 +1018,7 @@
       }
     }
   },
-  "slideOf": "Slide {current} of {total}",
+  "slideOf": "第 {current} / {total} 页幻灯片",
   "@slideOf": {
     "placeholders": {
       "current": {
@@ -1033,7 +1033,7 @@
   "clearStyle": "清除样式",
   "unknownImportType": "未知导入类型",
   "sureImportTemplate": "您确定要导入模板吗？",
-  "frame": "Frame",
+  "frame": "帧",
   "@frame": {
     "description": "Frame object"
   },
@@ -1059,10 +1059,10 @@
   "exitPresentationDescription": "按下转义键或向下滑动退出演示文稿",
   "pausePresentation": "暂停演示记录",
   "pausePresentationDescription": "点击屏幕或按空格键暂停或继续演示文稿",
-  "keyframe": "Keyframe",
+  "keyframe": "关键帧",
   "endOfPresentation": "您已经到了演示文稿的末尾。",
   "startOfPresentation": "您已经到了演示文稿的开始",
-  "palettes": "Palettes",
+  "palettes": "调色板",
   "headline": "标题 {index}",
   "@headline": {
     "placeholders": {
@@ -1143,7 +1143,7 @@
   "@pages": {
     "description": "Pages list"
   },
-  "navigator": "Navigator",
+  "navigator": "导航栏",
   "arrange": "安排",
   "@arrange": {
     "description": "Arrange menu"
@@ -1357,7 +1357,7 @@
   "@zoomControl": {
     "description": "Show zoom controls in the canvas view"
   },
-  "showThumbnails": "Show thumbnails",
+  "showThumbnails": "显示缩略图",
   "@showThumbnails": {
     "description": "Show thumbnails for notes in the file list"
   },
@@ -1516,11 +1516,11 @@
     "description": "Offset property"
   },
   "end": "结束",
-  "radius": "Radius",
+  "radius": "半径",
   "focalPoint": "协调中心",
   "useOffCenterStartPoint": "使用中心以外的起始点",
-  "focal": "Focal",
-  "focalRadius": "Focal radius",
+  "focal": "焦点",
+  "focalRadius": "焦点半径",
   "colorStops": "颜色停止",
   "addStop": "添加停止",
   "positionDependent": "位置依赖关系",
@@ -1632,7 +1632,7 @@
     "description": "Two elements swap their positions"
   },
   "hideFileExtension": "隐藏文件扩展名",
-  "aspectRatioHint": "eg. 16:9 or 1.5",
+  "aspectRatioHint": "例如：16:9 或 1.5",
   "@aspectRatioHint": {
     "description": "Hint text for aspect ratio input"
   },
@@ -1699,7 +1699,7 @@
   "smoothNavigationDescription": "在移动时通过简化画布使得画布变得更加舒适。",
   "edgePanAreaSwitchingDescription": "当你在画布边缘靠近画布时，切换到邻居地区。",
   "collaborationDescription": "允许多人实时编辑同一笔记。",
-  "verbose": "Verbose",
+  "verbose": "详细日志",
   "showVerboseLogsDescription": "在日志视图和控制台中包含详细的诊断消息。当出现问题时，这些消息可以帮助解答问题。",
   "bringMovedElementsToFrontDescription": "移动后将一个元素放在重叠元素上面。",
   "persistenceDocumentStatesDescription": "控制每个笔记的工作区的哪些部件，例如当前页面、缩放和选定的工具。",
@@ -1748,14 +1748,14 @@
   "rotationDisplay": "旋转显示",
   "rotationDisplayDescription": "选择旋转行出现在缩放上方的时间。这不会改变旋转手势或快捷方式。",
   "whenRotated": "旋转时",
-  "hidden": "Hidden",
+  "hidden": "隐藏",
   "rotateCanvasByDragging": "拖动画面旋转画布",
   "proportionalResizing": "比例调整大小",
   "currentView": "当前视图",
-  "images": "Images",
+  "images": "图片",
   "exportAs": "导出为",
   "moreOptions": "更多选项",
-  "saveExportSelection": "Save current selection…",
+  "saveExportSelection": "保存当前选区…",
   "managePresets": "管理预设…",
   "addExport": "添加导出",
   "noExportItems": "添加页面或区域到导出。",
@@ -1779,7 +1779,7 @@
       }
     }
   },
-  "imageExportSummary": "{count, plural, =1{1 {format} image} other{{count} {format} images}}",
+  "imageExportSummary": "{count, plural, =1{1 张 {format} 图片} other{{count} 张 {format} 图片}}",
   "@imageExportSummary": {
     "placeholders": {
       "count": {
@@ -1789,5 +1789,22 @@
         "type": "String"
       }
     }
-  }
+  },
+  "noteTitle": "笔记标题",
+  "fileNameHint": "不能用于文件名的字符将被替换为下划线。",
+  "importPdf": "导入 PDF",
+  "pdfImportSelectionCount": "{total, plural, =1{已选择 {selected} / 1 页} other{已选择 {selected} / {total} 页}}",
+  "@pdfImportSelectionCount": {
+    "description": "Number of selected pages out of the total in the PDF import dialog",
+    "placeholders": {
+      "selected": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "pdfImportCreateExportPreset": "创建导出预设",
+  "pdfScale": "PDF 缩放比例"
 }

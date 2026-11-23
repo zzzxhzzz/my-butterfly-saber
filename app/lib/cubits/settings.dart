@@ -1103,7 +1103,21 @@ sealed class ButterflySettings with _$ButterflySettings, LeapSettings {
       return null;
     }
     if (localeTag.contains('-')) {
-      return Locale(localeTag.split('-')[0], localeTag.split('-')[1]);
+      final parts = localeTag.split('-');
+      if (parts.length == 2 && parts[1].length == 4) {
+        return Locale.fromSubtags(
+          languageCode: parts[0],
+          scriptCode: parts[1],
+        );
+      }
+      if (parts.length >= 3) {
+        return Locale.fromSubtags(
+          languageCode: parts[0],
+          scriptCode: parts[1].length == 4 ? parts[1] : null,
+          countryCode: parts[1].length == 4 ? parts[2] : parts[1],
+        );
+      }
+      return Locale(parts[0], parts[1]);
     }
     return Locale(localeTag);
   }
