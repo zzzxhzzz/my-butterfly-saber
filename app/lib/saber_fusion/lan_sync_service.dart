@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data' show BytesBuilder;
 
 import 'package:butterfly/api/file_system.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:lw_file_system/lw_file_system.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:synchronized/synchronized.dart';
 
