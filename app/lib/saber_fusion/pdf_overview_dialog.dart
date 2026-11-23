@@ -578,7 +578,7 @@ class _PdfOverviewDialogState extends State<PdfOverviewDialog> {
       itemCount: pages.length,
       itemBuilder: (context, index) {
         final realName = pages[index];
-        final displayName = NoteData.getPageNameFromRealName(realName) ?? '';
+        final displayName = NoteData.getPageNameFromRealName(realName);
         final label = displayName.isEmpty ? '第 ${index + 1} 页' : displayName;
         final isCurrent = realName == docState.pageName;
         return Tooltip(

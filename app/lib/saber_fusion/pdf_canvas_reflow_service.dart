@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:butterfly/bloc/document_bloc.dart';
 import 'package:butterfly/cubits/transform.dart';
+import 'package:butterfly/helpers/rect.dart';
 import 'package:butterfly/renderers/renderer.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

@@ -6,7 +6,6 @@ import 'dart:ui' as ui;
 import 'package:butterfly/api/file_system.dart';
 import 'package:butterfly/api/open.dart';
 import 'package:butterfly/bloc/document_bloc.dart';
-import 'package:butterfly/cubits/editor_controller.dart';
 import 'package:butterfly/helpers/element.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -24,14 +23,6 @@ import 'study_state.dart';
 DocumentBloc? _maybeDocumentBloc(BuildContext context) {
   try {
     return BlocProvider.of<DocumentBloc>(context);
-  } catch (_) {
-    return null;
-  }
-}
-
-EditorController? _maybeEditorController(BuildContext context) {
-  try {
-    return BlocProvider.of<EditorController>(context);
   } catch (_) {
     return null;
   }
@@ -105,7 +96,7 @@ Future<void> openCurrentDocumentAsWindow(BuildContext context) async {
 
   final viewportSize = MediaQuery.sizeOf(context);
   final messenger = ScaffoldMessenger.maybeOf(context);
-  final saveLocation = _maybeEditorController(context)?.saveCubit.state.location;
+  final saveLocation = docBloc.editorController.saveCubit.state.location;
   final summaries = PdfStudyService.indexDocumentPdfs(docState);
   if (summaries.isEmpty) {
     messenger?.showSnackBar(
@@ -125,7 +116,7 @@ Future<void> openCurrentDocumentAsWindow(BuildContext context) async {
   }
 
   String? diskPath;
-  if (!kIsWeb && saveLocation != null && !saveLocation.isRemote) {
+  if (!kIsWeb && !saveLocation.isRemote) {
     if (saveLocation.absolute) {
       diskPath = saveLocation.path;
     } else if (saveLocation.path.isNotEmpty) {
