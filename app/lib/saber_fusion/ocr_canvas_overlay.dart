@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:material_leap/material_leap.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
@@ -850,14 +851,12 @@ class _FloatingSelectionMenu extends StatelessWidget {
     final palette = YingPdfPalette.of(context);
     const menuW = 205.0;
     const menuH = 112.0;
-    final left = selection.menuAnchorLocal.dx.clamp(
-      12.0,
-      math.max(12.0, maxWidth - menuW - 12.0),
-    );
-    final top = selection.menuAnchorLocal.dy.clamp(
-      12.0,
-      math.max(12.0, maxHeight - menuH - 12.0),
-    );
+    final left = selection.menuAnchorLocal.dx
+        .clamp(12.0, math.max(12.0, maxWidth - menuW - 12.0))
+        .toDouble();
+    final top = selection.menuAnchorLocal.dy
+        .clamp(12.0, math.max(12.0, maxHeight - menuH - 12.0))
+        .toDouble();
 
     return Positioned(
       left: left,
@@ -964,8 +963,9 @@ class _SelectionMenuRow extends StatelessWidget {
 
 class _PrimaryOnlyPanRecognizer extends PanGestureRecognizer {
   @override
-  bool isPointerAllowed(PointerDownEvent event) {
-    if (event.kind == PointerDeviceKind.mouse &&
+  bool isPointerAllowed(PointerEvent event) {
+    if (event is PointerDownEvent &&
+        event.kind == PointerDeviceKind.mouse &&
         event.buttons != kPrimaryMouseButton) {
       return false;
     }

@@ -202,7 +202,7 @@ class OcrService {
     try {
       final bytes = await uiImage.toByteData(format: ui.ImageByteFormat.png);
       if (bytes == null) return const [];
-      return _invokeAndroidPng(bytes.buffer.asUint8List(), langTag);
+      return await _invokeAndroidPng(bytes.buffer.asUint8List(), langTag);
     } finally {
       uiImage.dispose();
     }

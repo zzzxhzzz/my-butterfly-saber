@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:butterfly/services/asset.dart';
@@ -282,7 +281,7 @@ class OcrCubit extends Cubit<OcrState> {
     required bool progressiveOnly,
   }) {
     final clampedFocus = focusPage.clamp(0, totalPages - 1);
-    final ordered = LinkedHashSet<int>();
+    final ordered = <int>{};
     if (!alreadyDone.contains(clampedFocus)) {
       ordered.add(clampedFocus);
     }

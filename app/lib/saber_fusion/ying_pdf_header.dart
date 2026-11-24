@@ -4,7 +4,7 @@ import 'dart:math';
 import 'package:butterfly/bloc/document_bloc.dart';
 import 'package:butterfly/cubits/settings.dart';
 import 'package:butterfly/cubits/transform.dart';
-import 'package:butterfly/dialogs/import/add.dart';
+import 'package:butterfly/handlers/handler.dart';
 import 'package:butterfly/services/import.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -373,22 +373,28 @@ class YingPdfHeaderBar extends StatelessWidget implements PreferredSizeWidget {
                               if (maybeLanSyncCubit(context) case final lanCubit?)
                                 BlocBuilder<LanSyncCubit, LanSyncState>(
                                   bloc: lanCubit,
-                                  builder: (context, lanState) => _HeaderIconBtn(
-                                    palette: palette,
-                                    tooltip: lanState.isHosting
-                                        ? '局域网主机运行中（点击管理）'
-                                        : lanState.isConnected
-                                            ? '已连接局域网同步主机'
-                                            : '局域网双端同步账号',
-                                    icon: lanState.isHosting ||
-                                            lanState.isConnected
-                                        ? PhosphorIconsLight.cloud
-                                        : PhosphorIconsLight.wifiHigh,
-                                    active: lanState.isHosting ||
-                                        lanState.isConnected,
-                                    onPressed: () =>
-                                        unawaited(showLanSyncDialog(context)),
-                                  ),
+                                  builder: (context, lanState) {
+                                    final online =
+                                        lanState.account.isSignedIn &&
+                                        lanState.peers.isNotEmpty;
+                                    final signedIn =
+                                        lanState.account.isSignedIn;
+                                    return _HeaderIconBtn(
+                                      palette: palette,
+                                      tooltip: !signedIn
+                                          ? '局域网双端同步账号'
+                                          : online
+                                              ? '局域网已连接 ${lanState.peers.length} 台设备'
+                                              : '局域网同步监听中',
+                                      icon: online
+                                          ? PhosphorIconsLight.cloud
+                                          : PhosphorIconsLight.wifiHigh,
+                                      active: online,
+                                      onPressed: () => unawaited(
+                                        showLanSyncDialog(context),
+                                      ),
+                                    );
+                                  },
                                 ),
                               MenuAnchor(
                                 builder: (context, controller, child) =>

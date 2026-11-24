@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:butterfly/bloc/document_bloc.dart';
 import 'package:butterfly/cubits/transform.dart';
 import 'package:butterfly_api/butterfly_api.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
