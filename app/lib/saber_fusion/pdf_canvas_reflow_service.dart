@@ -116,19 +116,11 @@ class PdfCanvasReflowService {
     final centerWorld = bloc.transformCubit.state.localToGlobal(
       Offset(viewportSize.width / 2, viewportSize.height / 2),
     );
-    var best = candidates.first;
-    var bestDist = double.infinity;
-    for (final placement in candidates) {
-      if (placement.bounds.contains(centerWorld)) {
-        return placement.pdfPageIndex;
-      }
-      final dist = (placement.bounds.center - centerWorld).distanceSquared;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = placement;
-      }
-    }
-    return best.pdfPageIndex;
+    final nearestIdx = PdfStudyService.findNearestPlacementIndex(
+      candidates,
+      centerWorld,
+    );
+    return candidates[nearestIdx].pdfPageIndex;
   }
 
   static void navigateToSpread(
@@ -148,8 +140,9 @@ class PdfCanvasReflowService {
     DocumentBloc bloc,
     Size viewportSize,
     List<PdfPagePlacement> spread,
-    PdfMarginCropConfig config,
-  ) {
+    PdfMarginCropConfig config, {
+    bool bakeNow = true,
+  }) {
     if (spread.isEmpty || bloc.isClosed) return;
     final current = bloc.state;
     if (current is! DocumentLoadSuccess) return;
@@ -197,7 +190,9 @@ class PdfCanvasReflowService {
       );
     } else {
       bloc.transformCubit.teleport(targetPos, fitScale, 0);
-      unawaited(bloc.bake());
+      if (bakeNow) {
+        unawaited(bloc.bake());
+      }
     }
   }
 
@@ -274,34 +269,57 @@ class PdfCanvasReflowService {
 
     final pdfIds = pdfElements.map((e) => e.id).whereType<String>().toSet();
     final attachmentsByPdfPage = <int, List<String>>{};
-    for (final layer in docState.page.layers) {
-      for (final el in layer.content) {
-        final id = el.id;
-        if (id == null || pdfIds.contains(id)) continue;
-        final renderer = rendererById[id];
-        final bounds = renderer?.expandedRect ?? renderer?.rect;
-        if (bounds == null) continue;
-        final center = bounds.center;
-        int? matchedPage;
-        var bestDist = double.infinity;
-        for (final pdfEl in pdfElements) {
-          final pdfRect = oldBoundsByPage[pdfEl.page]!;
-          final expanded = Rect.fromLTRB(
-            pdfRect.left - 40,
-            pdfRect.top - 40,
-            pdfRect.right + pdfRect.width * 0.55,
-            pdfRect.bottom + 40,
-          );
-          if (expanded.contains(center)) {
-            final d = (pdfRect.center - center).distanceSquared;
-            if (d < bestDist) {
-              bestDist = d;
-              matchedPage = pdfEl.page;
+    final hasNonPdf = docState.page.layers.any(
+      (layer) => layer.content.any(
+        (el) => el.id != null && !pdfIds.contains(el.id),
+      ),
+    );
+    if (hasNonPdf) {
+      final ySortedPdfs = pdfElements.toList()
+        ..sort((a, b) => oldBoundsByPage[a.page]!.top.compareTo(oldBoundsByPage[b.page]!.top));
+      for (final layer in docState.page.layers) {
+        for (final el in layer.content) {
+          final id = el.id;
+          if (id == null || pdfIds.contains(id)) continue;
+          final renderer = rendererById[id];
+          final bounds = renderer?.expandedRect ?? renderer?.rect;
+          if (bounds == null) continue;
+          final center = bounds.center;
+          // Binary search vertical band to find matching PDF page in O(log N).
+          var lo = 0;
+          var hi = ySortedPdfs.length - 1;
+          while (lo < hi) {
+            final mid = (lo + hi) >> 1;
+            if (oldBoundsByPage[ySortedPdfs[mid].page]!.bottom + 40 < center.dy) {
+              lo = mid + 1;
+            } else {
+              hi = mid;
             }
           }
-        }
-        if (matchedPage != null) {
-          attachmentsByPdfPage.putIfAbsent(matchedPage, () => []).add(id);
+          int? matchedPage;
+          var bestDist = double.infinity;
+          final wEnd = min(ySortedPdfs.length, lo + 6);
+          for (var i = max(0, lo - 2); i < wEnd; i++) {
+            final pdfEl = ySortedPdfs[i];
+            final pdfRect = oldBoundsByPage[pdfEl.page]!;
+            if (pdfRect.top - 40 > center.dy) break;
+            final expanded = Rect.fromLTRB(
+              pdfRect.left - 40,
+              pdfRect.top - 40,
+              pdfRect.right + pdfRect.width * 0.55,
+              pdfRect.bottom + 40,
+            );
+            if (expanded.contains(center)) {
+              final d = (pdfRect.center - center).distanceSquared;
+              if (d < bestDist) {
+                bestDist = d;
+                matchedPage = pdfEl.page;
+              }
+            }
+          }
+          if (matchedPage != null) {
+            attachmentsByPdfPage.putIfAbsent(matchedPage, () => []).add(id);
+          }
         }
       }
     }
@@ -447,7 +465,13 @@ class PdfCanvasReflowService {
       final spreads = buildSpreads(refreshed, config.layoutMode);
       final spreadIdx = findSpreadIndexForPdfPage(spreads, currentPdfIdx);
       if (spreadIdx >= 0 && spreadIdx < spreads.length) {
-        navigateToSpreadWithBloc(bloc, viewportSize, spreads[spreadIdx], config);
+        navigateToSpreadWithBloc(
+          bloc,
+          viewportSize,
+          spreads[spreadIdx],
+          config,
+          bakeNow: false,
+        );
       }
       unawaited(bloc.bake(reset: true));
     } else {

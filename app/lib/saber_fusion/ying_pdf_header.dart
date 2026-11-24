@@ -13,6 +13,7 @@ import 'package:material_leap/material_leap.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import 'ai_tutor_tab.dart';
 import 'lan_sync_cubit.dart';
 import 'lan_sync_dialog.dart';
 import 'lan_sync_models.dart';
@@ -197,257 +198,275 @@ class YingPdfHeaderBar extends StatelessWidget implements PreferredSizeWidget {
                                 ? loaded!.metadata.name.trim()
                                 : '未命名文档');
 
-                      return BlocBuilder<TransformCubit, CameraTransform>(
-                        builder: (context, transform) {
-                          final totalPdfPages = primarySummary?.placements.length ?? 0;
-                          final currentPdfIdx =
-                              (primarySummary != null && totalPdfPages > 0)
-                              ? PdfCanvasReflowService.detectCurrentPageIndex(
-                                  context,
-                                  primarySummary,
-                                )
-                              : 0;
-                          final notePages = loaded?.data.getPages(true) ?? const <String>[];
-                          final noteIdx = loaded != null
-                              ? max(0, notePages.indexOf(loaded.pageName))
-                              : 0;
-                          final pageBadge = totalPdfPages > 0
-                              ? '第 ${currentPdfIdx + 1} 页 / 共 $totalPdfPages 页'
-                              : '第 ${noteIdx + 1} 页 / 共 ${max(1, notePages.length)} 页';
+                      final totalPdfPages = primarySummary?.placements.length ?? 0;
+                      final notePages =
+                          loaded?.data.getPages(true) ?? const <String>[];
+                      final noteIdx = loaded != null
+                          ? max(0, notePages.indexOf(loaded.pageName))
+                          : 0;
 
-                          return Row(
-                            children: [
-                              const SizedBox(width: 10),
-                              _OpenMenuButton(palette: palette),
-                              const SizedBox(width: 8),
-                              _DocStatusPill(
-                                palette: palette,
-                                title: docTitle,
-                                pageBadge: pageBadge,
-                                onOpenOverview: loaded == null
-                                    ? null
-                                    : () => unawaited(showPdfOverviewDialog(context)),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      _ZoomPill(
-                                        palette: palette,
-                                        zoomPercent: (transform.size * 100).round(),
-                                        onZoomOut: () => _zoomBy(
-                                          context,
-                                          studyState,
-                                          1 / 1.15,
-                                        ),
-                                        onZoomIn: () => _zoomBy(
-                                          context,
-                                          studyState,
-                                          1.15,
-                                        ),
-                                        onFit: loaded == null
-                                            ? null
-                                            : () => _fitWidth(
-                                                context,
-                                                studyState,
-                                                loaded,
-                                                primarySummary,
-                                              ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      if (ocrCubit != null)
-                                        BlocBuilder<OcrCubit, OcrState>(
-                                          bloc: ocrCubit,
-                                          builder: (context, ocrState) =>
-                                              _OcrLayerPill(
-                                                palette: palette,
-                                                active: ocrState.whiteBgVisible,
-                                                count: ocrState.completedPages,
-                                                running: ocrState.isRunning,
-                                                onTap: ocrCubit.toggleWhiteBgLayer,
-                                              ),
-                                        )
-                                      else
-                                        _OcrLayerPill(
-                                          palette: palette,
-                                          active: false,
-                                          count: 0,
-                                          running: false,
-                                          onTap: null,
-                                        ),
-                                      const SizedBox(width: 6),
-                                      _HeaderActionChip(
-                                        palette: palette,
-                                        icon: PhosphorIconsLight.selection,
-                                        label: '截取',
-                                        shortcut: 'R',
-                                        active: studyState.aiSnippingMode,
-                                        tooltip: '区域框选截取（R）',
-                                        onTap: loaded == null
-                                            ? null
-                                            : () => studyCubit.setAiSnippingMode(
-                                                !studyState.aiSnippingMode,
-                                              ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      _HeaderActionChip(
-                                        palette: palette,
-                                        icon: PhosphorIconsLight.magnifyingGlass,
-                                        label: '搜索',
-                                        shortcut: 'F',
-                                        active:
-                                            studyState.inspectorOpen &&
-                                            studyState.studyPanelOpen &&
-                                            studyState.activeTab ==
-                                                StudyPanelTab.search,
-                                        tooltip: '全文 / OCR 识别文字搜索（F）',
-                                        onTap: loaded == null
-                                            ? null
-                                            : () {
-                                                studyCubit.setInspectorOpen(true);
-                                                studyCubit.openStudyPanel(
-                                                  StudyPanelTab.search,
-                                                );
-                                              },
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              _WorkspaceModeToggle(
-                                palette: palette,
-                                mode: studyState.workspaceMode,
-                                excerptCount: studyState.canvasExcerptCount,
-                                onChanged: studyCubit.setWorkspaceMode,
-                              ),
-                              const SizedBox(width: 6),
-                              _HeaderIconBtn(
-                                palette: palette,
-                                tooltip:
-                                    '阅读版式：${studyState.pdfCrop.layoutMode.label}',
-                                icon: studyState.pdfCrop.layoutMode ==
-                                        PdfViewLayoutMode.singlePage
-                                    ? PhosphorIconsLight.rows
-                                    : PhosphorIconsLight.columns,
-                                active: studyState.pdfCrop.layoutMode !=
-                                    PdfViewLayoutMode.singlePage,
-                                onPressed: () => _cycleBookLayout(
-                                  context,
-                                  studyCubit,
-                                  studyState,
-                                  primarySummary,
-                                ),
-                              ),
-                              _HeaderIconBtn(
-                                palette: palette,
-                                tooltip:
-                                    '滤镜模式：${studyState.colorMode.displayName}',
-                                icon: studyState.colorMode.index == 0
-                                    ? PhosphorIconsLight.sun
-                                    : PhosphorIconsLight.moon,
-                                active: studyState.colorMode.index != 0,
-                                onPressed: studyCubit.cycleColorMode,
-                              ),
-                              if (maybeMultiPdfWindowCubit(context)
-                                  case final winCubit?)
-                                BlocBuilder<
-                                  MultiPdfWindowCubit,
-                                  MultiPdfWindowState
-                                >(
-                                  bloc: winCubit,
-                                  builder: (context, winState) => _HeaderIconBtn(
+                      return Row(
+                        children: [
+                          const SizedBox(width: 8),
+                          _OpenMenuButton(palette: palette),
+                          const SizedBox(width: 6),
+                          _DocStatusPill(
+                            palette: palette,
+                            title: docTitle,
+                            totalPdfPages: totalPdfPages,
+                            noteIdx: noteIdx,
+                            noteTotal: max(1, notePages.length),
+                            primarySummary: primarySummary,
+                            onOpenOverview: loaded == null
+                                ? null
+                                : () => unawaited(showPdfOverviewDialog(context)),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _ZoomPill(
                                     palette: palette,
-                                    tooltip: '多 PDF 悬浮窗 (${winState.windows.length})',
-                                    icon: PhosphorIconsLight.appWindow,
-                                    active: winState.windows.any(
-                                      (w) => !w.minimized,
+                                    onZoomOut: () => _zoomBy(
+                                      context,
+                                      studyState,
+                                      1 / 1.15,
                                     ),
-                                    onPressed: () =>
-                                        openMultiPdfWindowEntry(context),
+                                    onZoomIn: () => _zoomBy(
+                                      context,
+                                      studyState,
+                                      1.15,
+                                    ),
+                                    onFit: loaded == null
+                                        ? null
+                                        : () => _fitWidth(
+                                            context,
+                                            studyState,
+                                            loaded,
+                                            primarySummary,
+                                          ),
                                   ),
-                                ),
-                              if (maybeLanSyncCubit(context) case final lanCubit?)
-                                BlocBuilder<LanSyncCubit, LanSyncState>(
-                                  bloc: lanCubit,
-                                  builder: (context, lanState) {
-                                    final online =
-                                        lanState.account.isSignedIn &&
-                                        lanState.peers.isNotEmpty;
-                                    final signedIn =
-                                        lanState.account.isSignedIn;
-                                    return _HeaderIconBtn(
+                                  const SizedBox(width: 5),
+                                  if (ocrCubit != null)
+                                    BlocBuilder<OcrCubit, OcrState>(
+                                      bloc: ocrCubit,
+                                      buildWhen: (prev, curr) =>
+                                          prev.whiteBgVisible !=
+                                              curr.whiteBgVisible ||
+                                          prev.completedPages !=
+                                              curr.completedPages ||
+                                          prev.isRunning != curr.isRunning,
+                                      builder: (context, ocrState) =>
+                                          _OcrLayerPill(
+                                            palette: palette,
+                                            active: ocrState.whiteBgVisible,
+                                            count: ocrState.completedPages,
+                                            running: ocrState.isRunning,
+                                            onTap: ocrCubit.toggleWhiteBgLayer,
+                                          ),
+                                    )
+                                  else
+                                    _OcrLayerPill(
                                       palette: palette,
-                                      tooltip: !signedIn
-                                          ? '局域网双端同步账号'
-                                          : online
-                                              ? '局域网已连接 ${lanState.peers.length} 台设备'
-                                              : '局域网同步监听中',
-                                      icon: online
-                                          ? PhosphorIconsLight.cloud
-                                          : PhosphorIconsLight.wifiHigh,
-                                      active: online,
-                                      onPressed: () => unawaited(
-                                        showLanSyncDialog(context),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              MenuAnchor(
-                                builder: (context, controller, child) =>
-                                    _HeaderIconBtn(
-                                      palette: palette,
-                                      tooltip: '帮助与界面切换',
-                                      icon: PhosphorIconsLight.question,
                                       active: false,
-                                      onPressed: () => controller.isOpen
-                                          ? controller.close()
-                                          : controller.open(),
+                                      count: 0,
+                                      running: false,
+                                      onTap: null,
                                     ),
-                                menuChildren: [
-                                  MenuItemButton(
-                                    leadingIcon: const PhosphorIcon(
-                                      PhosphorIconsLight.info,
-                                    ),
-                                    onPressed: () =>
-                                        _showShortcutHelpDialog(context),
-                                    child: const Text('快捷键与功能说明'),
+                                  const SizedBox(width: 5),
+                                  _HeaderActionChip(
+                                    palette: palette,
+                                    icon: PhosphorIconsLight.selection,
+                                    label: '截取',
+                                    shortcut: 'R',
+                                    active: studyState.aiSnippingMode,
+                                    tooltip: '区域框选截取（R）',
+                                    onTap: loaded == null
+                                        ? null
+                                        : () => studyCubit.setAiSnippingMode(
+                                            !studyState.aiSnippingMode,
+                                          ),
                                   ),
-                                  MenuItemButton(
-                                    leadingIcon: const PhosphorIcon(
-                                      PhosphorIconsLight.slidersHorizontal,
+                                  const SizedBox(width: 5),
+                                  _HeaderActionChip(
+                                    palette: palette,
+                                    icon: PhosphorIconsLight.magnifyingGlass,
+                                    label: '搜索',
+                                    shortcut: 'F',
+                                    active:
+                                        studyState.inspectorOpen &&
+                                        studyState.studyPanelOpen &&
+                                        studyState.activeTab ==
+                                            StudyPanelTab.search,
+                                    tooltip: '全文 / OCR 识别文字搜索（F）',
+                                    onTap: loaded == null
+                                        ? null
+                                        : () {
+                                            studyCubit.setInspectorOpen(true);
+                                            studyCubit.openStudyPanel(
+                                              StudyPanelTab.search,
+                                            );
+                                          },
+                                  ),
+                                  const SizedBox(width: 5),
+                                  _HeaderActionChip(
+                                    palette: palette,
+                                    icon: PhosphorIconsLight.sparkle,
+                                    label: 'API',
+                                    shortcut: '',
+                                    active: studyState.aiConfig.isConfigured,
+                                    tooltip: studyState.aiConfig.isConfigured
+                                        ? 'OpenAI API 已配置 (${studyState.aiConfig.effectiveVisionModel})，点击调整'
+                                        : '配置 OpenAI 格式 API 接口',
+                                    onTap: () => unawaited(
+                                      showOpenAiApiSettingsDialog(context),
                                     ),
-                                    onPressed: () =>
-                                        studyCubit.setYingPdfStyle(false),
-                                    child: const Text('切换经典 Butterfly 界面'),
                                   ),
                                 ],
                               ),
-                              _HeaderIconBtn(
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          _WorkspaceModeToggle(
+                            palette: palette,
+                            mode: studyState.workspaceMode,
+                            excerptCount: studyState.canvasExcerptCount,
+                            onChanged: studyCubit.setWorkspaceMode,
+                          ),
+                          const SizedBox(width: 4),
+                          _HeaderIconBtn(
+                            palette: palette,
+                            tooltip:
+                                '阅读版式：${studyState.pdfCrop.layoutMode.label}',
+                            icon: studyState.pdfCrop.layoutMode ==
+                                    PdfViewLayoutMode.singlePage
+                                ? PhosphorIconsLight.rows
+                                : PhosphorIconsLight.columns,
+                            active: studyState.pdfCrop.layoutMode !=
+                                PdfViewLayoutMode.singlePage,
+                            onPressed: () => _cycleBookLayout(
+                              context,
+                              studyCubit,
+                              studyState,
+                              primarySummary,
+                            ),
+                          ),
+                          _HeaderIconBtn(
+                            palette: palette,
+                            tooltip:
+                                '滤镜模式：${studyState.colorMode.displayName}',
+                            icon: studyState.colorMode.index == 0
+                                ? PhosphorIconsLight.sun
+                                : PhosphorIconsLight.moon,
+                            active: studyState.colorMode.index != 0,
+                            onPressed: studyCubit.cycleColorMode,
+                          ),
+                          if (maybeMultiPdfWindowCubit(context)
+                              case final winCubit?)
+                            BlocBuilder<
+                              MultiPdfWindowCubit,
+                              MultiPdfWindowState
+                            >(
+                              bloc: winCubit,
+                              builder: (context, winState) => _HeaderIconBtn(
                                 palette: palette,
-                                tooltip: studyState.inspectorOpen
-                                    ? '收起右侧检查器'
-                                    : '展开右侧检查器',
-                                icon: studyState.inspectorOpen
-                                    ? PhosphorIconsLight.caretRight
-                                    : PhosphorIconsLight.caretLeft,
-                                active: studyState.inspectorOpen,
-                                onPressed: studyCubit.toggleInspectorOpen,
+                                tooltip:
+                                    '多 PDF 悬浮窗 (${winState.windows.length})',
+                                icon: PhosphorIconsLight.appWindow,
+                                active: winState.windows.any(
+                                  (w) => !w.minimized,
+                                ),
+                                onPressed: () =>
+                                    openMultiPdfWindowEntry(context),
                               ),
-                              if (isWindow && !inView && !nativeTitleBar) ...[
-                                const SizedBox(width: 4),
-                                const WindowButtons<
-                                  SettingsCubit,
-                                  ButterflySettings
-                                >(height: 40),
-                              ] else
-                                const SizedBox(width: 6),
+                            ),
+                          if (maybeLanSyncCubit(context) case final lanCubit?)
+                            BlocBuilder<LanSyncCubit, LanSyncState>(
+                              bloc: lanCubit,
+                              builder: (context, lanState) {
+                                final online =
+                                    lanState.account.isSignedIn &&
+                                    lanState.peers.isNotEmpty;
+                                final signedIn = lanState.account.isSignedIn;
+                                return _HeaderIconBtn(
+                                  palette: palette,
+                                  tooltip: !signedIn
+                                      ? '局域网双端同步账号'
+                                      : online
+                                      ? '局域网已连接 ${lanState.peers.length} 台设备'
+                                      : '局域网同步监听中',
+                                  icon: online
+                                      ? PhosphorIconsLight.cloud
+                                      : PhosphorIconsLight.wifiHigh,
+                                  active: online,
+                                  onPressed: () => unawaited(
+                                    showLanSyncDialog(context),
+                                  ),
+                                );
+                              },
+                            ),
+                          MenuAnchor(
+                            builder: (context, controller, child) =>
+                                _HeaderIconBtn(
+                                  palette: palette,
+                                  tooltip: '帮助、API 与界面切换',
+                                  icon: PhosphorIconsLight.question,
+                                  active: false,
+                                  onPressed: () => controller.isOpen
+                                      ? controller.close()
+                                      : controller.open(),
+                                ),
+                            menuChildren: [
+                              MenuItemButton(
+                                leadingIcon: const PhosphorIcon(
+                                  PhosphorIconsLight.sparkle,
+                                ),
+                                onPressed: () => unawaited(
+                                  showOpenAiApiSettingsDialog(context),
+                                ),
+                                child: const Text('配置 OpenAI 格式 API 接口'),
+                              ),
+                              MenuItemButton(
+                                leadingIcon: const PhosphorIcon(
+                                  PhosphorIconsLight.info,
+                                ),
+                                onPressed: () =>
+                                    _showShortcutHelpDialog(context),
+                                child: const Text('快捷键与功能说明'),
+                              ),
+                              MenuItemButton(
+                                leadingIcon: const PhosphorIcon(
+                                  PhosphorIconsLight.slidersHorizontal,
+                                ),
+                                onPressed: () =>
+                                    studyCubit.setYingPdfStyle(false),
+                                child: const Text('切换经典 Butterfly 界面'),
+                              ),
                             ],
-                          );
-                        },
+                          ),
+                          _HeaderIconBtn(
+                            palette: palette,
+                            tooltip: studyState.inspectorOpen
+                                ? '收起右侧检查器'
+                                : '展开右侧检查器',
+                            icon: studyState.inspectorOpen
+                                ? PhosphorIconsLight.caretRight
+                                : PhosphorIconsLight.caretLeft,
+                            active: studyState.inspectorOpen,
+                            onPressed: studyCubit.toggleInspectorOpen,
+                          ),
+                          if (isWindow && !inView && !nativeTitleBar) ...[
+                            const SizedBox(width: 4),
+                            const WindowButtons<
+                              SettingsCubit,
+                              ButterflySettings
+                            >(height: 40),
+                          ] else
+                            const SizedBox(width: 6),
+                        ],
                       );
                     },
                   ),
@@ -556,21 +575,27 @@ class _OpenMenuButton extends StatelessWidget {
 class _DocStatusPill extends StatelessWidget {
   final YingPdfPalette palette;
   final String title;
-  final String pageBadge;
+  final int totalPdfPages;
+  final int noteIdx;
+  final int noteTotal;
+  final PdfSourceSummary? primarySummary;
   final VoidCallback? onOpenOverview;
 
   const _DocStatusPill({
     required this.palette,
     required this.title,
-    required this.pageBadge,
+    required this.totalPdfPages,
+    required this.noteIdx,
+    required this.noteTotal,
+    required this.primarySummary,
     required this.onOpenOverview,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 310),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      constraints: const BoxConstraints(maxWidth: 235),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: palette.pillSurface,
         borderRadius: BorderRadius.circular(8),
@@ -587,7 +612,7 @@ class _DocStatusPill extends StatelessWidget {
               shape: BoxShape.circle,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 5),
           Flexible(
             child: Text(
               title,
@@ -600,16 +625,32 @@ class _DocStatusPill extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Text(
-            pageBadge,
-            style: TextStyle(
-              color: palette.inkSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
           const SizedBox(width: 6),
+          if (primarySummary != null && totalPdfPages > 0)
+            BlocSelector<TransformCubit, CameraTransform, int>(
+              selector: (_) => PdfCanvasReflowService.detectCurrentPageIndex(
+                context,
+                primarySummary!,
+              ),
+              builder: (_, currentPdfIdx) => Text(
+                '第 ${currentPdfIdx + 1}/$totalPdfPages 页',
+                style: TextStyle(
+                  color: palette.inkSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            )
+          else
+            Text(
+              '第 ${noteIdx + 1}/$noteTotal 页',
+              style: TextStyle(
+                color: palette.inkSecondary,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          const SizedBox(width: 5),
           InkWell(
             onTap: onOpenOverview,
             borderRadius: BorderRadius.circular(4),
@@ -633,14 +674,12 @@ class _DocStatusPill extends StatelessWidget {
 
 class _ZoomPill extends StatelessWidget {
   final YingPdfPalette palette;
-  final int zoomPercent;
   final VoidCallback onZoomOut;
   final VoidCallback onZoomIn;
   final VoidCallback? onFit;
 
   const _ZoomPill({
     required this.palette,
-    required this.zoomPercent,
     required this.onZoomOut,
     required this.onZoomIn,
     required this.onFit,
@@ -668,13 +707,16 @@ class _ZoomPill extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text(
-              '$zoomPercent%',
-              style: TextStyle(
-                color: palette.inkPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            child: BlocSelector<TransformCubit, CameraTransform, int>(
+              selector: (t) => (t.size * 100).round(),
+              builder: (_, zoomPercent) => Text(
+                '$zoomPercent%',
+                style: TextStyle(
+                  color: palette.inkPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -841,8 +883,10 @@ class _HeaderActionChip extends StatelessWidget {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(width: 5),
-              _ShortcutKbd(palette: palette, text: shortcut),
+              if (shortcut.isNotEmpty) ...[
+                const SizedBox(width: 5),
+                _ShortcutKbd(palette: palette, text: shortcut),
+              ],
             ],
           ),
         ),

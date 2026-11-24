@@ -152,19 +152,17 @@ Future<bool> insertImageExcerptToCanvas(
 class _CachedLineLayout {
   final TextPainter painter;
   final Offset topLeft;
-  final double sx;
-  final double sy;
 
   const _CachedLineLayout({
     required this.painter,
     required this.topLeft,
-    required this.sx,
-    required this.sy,
   });
 }
 
 class OcrTextLayerPainter extends CustomPainter {
   static final Map<String, List<_CachedLineLayout>> _layoutCache = {};
+  static final Expando<List<({PdfElement pdf, Rect fullBounds})>> _pagePdfCache =
+      Expando<List<({PdfElement pdf, Rect fullBounds})>>();
 
   final DocumentPage page;
   final CameraTransform transform;
@@ -179,6 +177,17 @@ class OcrTextLayerPainter extends CustomPainter {
     required this.ocrState,
     required this.selectionColor,
   });
+
+  List<({PdfElement pdf, Rect fullBounds})> _pdfsForPage() {
+    var cached = _pagePdfCache[page];
+    if (cached != null) return cached;
+    cached = [
+      for (final pdf in page.content.whereType<PdfElement>())
+        (pdf: pdf, fullBounds: PdfStudyService.computePdfBounds(pdf)),
+    ];
+    _pagePdfCache[page] = cached;
+    return cached;
+  }
 
   List<_CachedLineLayout> _resolveLineLayouts(
     OcrPageResult ocrPage,
@@ -200,13 +209,26 @@ class OcrTextLayerPainter extends CustomPainter {
       final rect = line.toWorldRect(fullBounds);
       if (rect.width < 2 || rect.height < 2) continue;
 
-      final baseFontSize = rect.height.clamp(6.0, 42.0) * 0.84;
+      final probe = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: const TextStyle(fontSize: 100.0, height: 1.05),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+
+      final w100 = probe.width <= 0 ? 1.0 : probe.width;
+      final fs = (rect.width / w100 * 100.0)
+          .clamp(rect.height * 0.55, rect.height * 1.15)
+          .clamp(5.5, 48.0);
+
       final painter = TextPainter(
         text: TextSpan(
           text: text,
           style: TextStyle(
             color: Colors.black,
-            fontSize: baseFontSize,
+            fontSize: fs,
             height: 1.05,
             fontWeight: FontWeight.w400,
           ),
@@ -216,14 +238,11 @@ class OcrTextLayerPainter extends CustomPainter {
       )..layout();
 
       if (painter.width <= 0 || painter.height <= 0) continue;
-      final sx = rect.width / painter.width;
-      final sy = rect.height / painter.height;
+      final dyOffset = math.max(0.0, (rect.height - painter.height) * 0.5);
       layouts.add(
         _CachedLineLayout(
           painter: painter,
-          topLeft: rect.topLeft,
-          sx: sx.clamp(0.45, 2.2),
-          sy: sy.clamp(0.55, 1.8),
+          topLeft: Offset(rect.left, rect.top + dyOffset),
         ),
       );
     }
@@ -234,7 +253,9 @@ class OcrTextLayerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final drawWhiteBg =
-        ocrState.whiteBgVisible && ocrState.whiteBgOpacity > 0.005;
+        ocrState.whiteBgVisible &&
+        ocrState.whiteBgOpacity > 0.005 &&
+        ocrState.pages.isNotEmpty;
     final selection = ocrState.selection;
     final drawSelection = selection != null && selection.isNotEmpty;
     if (!drawWhiteBg && !drawSelection) return;
@@ -250,35 +271,33 @@ class OcrTextLayerPainter extends CustomPainter {
       final layerPaint = Paint()
         ..color = Color.fromARGB((textAlpha * 255).round(), 255, 255, 255);
 
-      for (final pdf in page.content.whereType<PdfElement>()) {
+      for (final entry in _pdfsForPage()) {
+        final pdf = entry.pdf;
         if (ocrState.activePdfSource != null &&
             pdf.source != ocrState.activePdfSource) {
           continue;
         }
-        final fullBounds = PdfStudyService.computePdfBounds(pdf);
-        final croppedWorld = pdfCrop.croppedWorldRect(fullBounds, pdf.page);
+        // Only paint white paper backdrop for pages that actually have OCR lines;
+        // never blank out unrecognized or progressive-pending pages.
+        final ocrPage = ocrState.pages[pdf.page];
+        if (ocrPage == null || ocrPage.lines.isEmpty) continue;
+
+        final croppedWorld = pdfCrop.croppedWorldRect(entry.fullBounds, pdf.page);
         if (!croppedWorld.overlaps(visibleWorld)) continue;
 
-        final ocrPage = ocrState.pages[pdf.page];
         canvas.save();
         canvas.clipRect(croppedWorld);
         canvas.drawRect(croppedWorld, bgPaint);
 
-        if (ocrPage != null && ocrPage.lines.isNotEmpty) {
-          final layouts = _resolveLineLayouts(ocrPage, fullBounds);
-          if (textAlpha < 0.99) {
-            canvas.saveLayer(croppedWorld, layerPaint);
-          }
-          for (final item in layouts) {
-            canvas.save();
-            canvas.translate(item.topLeft.dx, item.topLeft.dy);
-            canvas.scale(item.sx, item.sy);
-            item.painter.paint(canvas, Offset.zero);
-            canvas.restore();
-          }
-          if (textAlpha < 0.99) {
-            canvas.restore();
-          }
+        final layouts = _resolveLineLayouts(ocrPage, entry.fullBounds);
+        if (textAlpha < 0.99) {
+          canvas.saveLayer(croppedWorld, layerPaint);
+        }
+        for (final item in layouts) {
+          item.painter.paint(canvas, item.topLeft);
+        }
+        if (textAlpha < 0.99) {
+          canvas.restore();
         }
         canvas.restore();
       }
@@ -292,7 +311,10 @@ class OcrTextLayerPainter extends CustomPainter {
         ..strokeWidth = 1.0 / math.max(transform.size, 0.3);
       for (final rect in selection.worldRects) {
         if (!rect.overlaps(visibleWorld)) continue;
-        final rrect = RRect.fromRectAndRadius(rect.inflate(1.5), const Radius.circular(2));
+        final rrect = RRect.fromRectAndRadius(
+          rect.inflate(1.5),
+          const Radius.circular(2),
+        );
         canvas.drawRRect(rrect, fillPaint);
         canvas.drawRRect(rrect, borderPaint);
       }
@@ -324,7 +346,8 @@ class OcrReadingInteractionOverlay extends StatefulWidget {
 class _OcrReadingInteractionOverlayState
     extends State<OcrReadingInteractionOverlay> {
   final Set<int> _touchPointers = {};
-  PdfElement? _dragPdf;
+  String? _dragPdfSource;
+  int? _dragPageIndex;
   Rect? _dragFullBounds;
   OcrPageResult? _dragOcrPage;
   Offset? _dragStartWorld;
@@ -339,16 +362,25 @@ class _OcrReadingInteractionOverlayState
     if (_touchPointers.length >= 2 || ocrState.pages.isEmpty) return false;
     final worldPos = transform.localToGlobal(localPosition);
     final pad = 8.0 / math.max(transform.size, 0.35);
+    final summaries = PdfStudyService.indexDocumentPdfs(docState);
 
-    for (final pdf in docState.page.content.whereType<PdfElement>()) {
+    for (final summary in summaries) {
       if (ocrState.activePdfSource != null &&
-          pdf.source != ocrState.activePdfSource) {
+          summary.source != ocrState.activePdfSource) {
         continue;
       }
-      final fullBounds = PdfStudyService.computePdfBounds(pdf);
-      final croppedWorld = crop.croppedWorldRect(fullBounds, pdf.page);
-      if (!croppedWorld.contains(worldPos)) continue;
-      final ocrPage = ocrState.pages[pdf.page];
+      final placements = summary.placements;
+      if (placements.isEmpty) continue;
+      final nearestIdx = PdfStudyService.findNearestPlacementIndex(
+        placements,
+        worldPos,
+      );
+      final p = placements[nearestIdx];
+      final fullBounds = p.bounds;
+      if (!crop.croppedWorldRect(fullBounds, p.pdfPageIndex).contains(worldPos)) {
+        continue;
+      }
+      final ocrPage = ocrState.pages[p.pdfPageIndex];
       if (ocrPage == null || ocrPage.lines.isEmpty) continue;
       for (final line in ocrPage.lines) {
         if (line.toWorldRect(fullBounds).inflate(pad).contains(worldPos)) {
@@ -359,23 +391,40 @@ class _OcrReadingInteractionOverlayState
     return false;
   }
 
-  ({PdfElement pdf, Rect fullBounds, OcrPageResult ocrPage})? _findTargetPage(
+  ({
+    String pdfSource,
+    int pageIndex,
+    Rect fullBounds,
+    OcrPageResult ocrPage,
+  })? _findTargetPage(
     Offset worldPos,
     DocumentLoadSuccess docState,
     PdfMarginCropConfig crop,
     OcrState ocrState,
   ) {
-    for (final pdf in docState.page.content.whereType<PdfElement>()) {
+    final summaries = PdfStudyService.indexDocumentPdfs(docState);
+    for (final summary in summaries) {
       if (ocrState.activePdfSource != null &&
-          pdf.source != ocrState.activePdfSource) {
+          summary.source != ocrState.activePdfSource) {
         continue;
       }
-      final fullBounds = PdfStudyService.computePdfBounds(pdf);
-      final croppedWorld = crop.croppedWorldRect(fullBounds, pdf.page);
+      final placements = summary.placements;
+      if (placements.isEmpty) continue;
+      final nearestIdx = PdfStudyService.findNearestPlacementIndex(
+        placements,
+        worldPos,
+      );
+      final p = placements[nearestIdx];
+      final croppedWorld = crop.croppedWorldRect(p.bounds, p.pdfPageIndex);
       if (!croppedWorld.contains(worldPos)) continue;
-      final ocrPage = ocrState.pages[pdf.page];
+      final ocrPage = ocrState.pages[p.pdfPageIndex];
       if (ocrPage != null) {
-        return (pdf: pdf, fullBounds: fullBounds, ocrPage: ocrPage);
+        return (
+          pdfSource: summary.source,
+          pageIndex: p.pdfPageIndex,
+          fullBounds: p.bounds,
+          ocrPage: ocrPage,
+        );
       }
     }
     return null;
@@ -401,7 +450,8 @@ class _OcrReadingInteractionOverlayState
   }
 
   OcrSelectionState? _buildSelection({
-    required PdfElement pdf,
+    required String pdfSource,
+    required int pageIndex,
     required Rect fullBounds,
     required OcrPageResult ocrPage,
     required CameraTransform transform,
@@ -557,8 +607,8 @@ class _OcrReadingInteractionOverlayState
       Offset(lastWorld.right, lastWorld.bottom + 8),
     );
     return OcrSelectionState(
-      pdfSource: pdf.source,
-      pageIndex: pdf.page,
+      pdfSource: pdfSource,
+      pageIndex: pageIndex,
       text: selectedLinesText.join('\n'),
       worldRects: List.unmodifiable(selectedWorldRects),
       menuAnchorLocal: anchorLocal,
@@ -596,227 +646,249 @@ class _OcrReadingInteractionOverlayState
         }
         return BlocBuilder<OcrCubit, OcrState>(
           bloc: ocrCubit,
+          buildWhen: (prev, curr) =>
+              prev.selection != curr.selection ||
+              prev.pages != curr.pages ||
+              prev.activePdfSource != curr.activePdfSource,
           builder: (context, ocrState) {
             return BlocBuilder<DocumentBloc, DocumentState>(
               builder: (context, docState) {
                 if (docState is! DocumentLoadSuccess) {
                   return const SizedBox.shrink();
                 }
-                return BlocBuilder<TransformCubit, CameraTransform>(
-                  builder: (context, transform) {
-                    return LayoutBuilder(
-                      builder: (context, constraints) {
-                        final selection = ocrState.selection;
-                        return Stack(
-                          children: [
-                            Positioned.fill(
-                              child: Listener(
-                                behavior: HitTestBehavior.translucent,
-                                onPointerSignal: (event) {
-                                  if (event is PointerScrollEvent &&
-                                      _hitTestOcrLine(
-                                        event.localPosition,
-                                        docState: docState,
-                                        transform: transform,
-                                        crop: studyState.pdfCrop,
-                                        ocrState: ocrState,
-                                      )) {
-                                    final kb = HardwareKeyboard.instance;
-                                    final tc = context.read<TransformCubit>();
-                                    if (kb.isControlPressed) {
-                                      final factor =
-                                          (-(event.scrollDelta.dx +
-                                                  event.scrollDelta.dy / 2) *
-                                              0.002) +
-                                          1.0;
-                                      tc.zoom(factor, event.localPosition);
-                                    } else {
-                                      final delta = kb.isShiftPressed
-                                          ? Offset(
-                                              -event.scrollDelta.dy,
-                                              -event.scrollDelta.dx,
-                                            )
-                                          : -event.scrollDelta;
-                                      tc.move(tc.state.localToGlobalDelta(delta));
-                                    }
-                                    context.read<DocumentBloc>().delayedBake(
-                                      viewportSize: constraints.biggest,
-                                      pixelRatio: MediaQuery.devicePixelRatioOf(
-                                        context,
-                                      ),
-                                      testTransform: false,
-                                    );
-                                  }
-                                },
-                                onPointerDown: (event) {
-                                  if (event.kind == PointerDeviceKind.touch) {
-                                    _touchPointers.add(event.pointer);
-                                    if (_touchPointers.length >= 2) {
-                                      ocrCubit.clearSelection();
-                                      return;
-                                    }
-                                  }
-                                  if (event.buttons != kPrimaryMouseButton &&
-                                      event.kind == PointerDeviceKind.mouse) {
-                                    return;
-                                  }
-                                  if (ocrState.selection != null &&
-                                      !_hitTestOcrLine(
-                                        event.localPosition,
-                                        docState: docState,
-                                        transform: transform,
-                                        crop: studyState.pdfCrop,
-                                        ocrState: ocrState,
-                                      )) {
-                                    ocrCubit.clearSelection();
-                                  }
-                                },
-                                onPointerUp: (event) {
-                                  _touchPointers.remove(event.pointer);
-                                },
-                                onPointerCancel: (event) {
-                                  _touchPointers.remove(event.pointer);
-                                },
-                                child: _SelectiveHitTestWidget(
-                                  onHitTest: (localPos) => _hitTestOcrLine(
-                                    localPos,
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final selection = ocrState.selection;
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Listener(
+                            behavior: HitTestBehavior.translucent,
+                            onPointerSignal: (event) {
+                              ocrCubit.notifyUserBusy();
+                              final transform =
+                                  context.read<TransformCubit>().state;
+                              if (event is PointerScrollEvent &&
+                                  _hitTestOcrLine(
+                                    event.localPosition,
                                     docState: docState,
                                     transform: transform,
                                     crop: studyState.pdfCrop,
                                     ocrState: ocrState,
+                                  )) {
+                                final kb = HardwareKeyboard.instance;
+                                final tc = context.read<TransformCubit>();
+                                if (kb.isControlPressed) {
+                                  final factor =
+                                      (-(event.scrollDelta.dx +
+                                              event.scrollDelta.dy / 2) *
+                                          0.002) +
+                                      1.0;
+                                  tc.zoom(factor, event.localPosition);
+                                } else {
+                                  final delta = kb.isShiftPressed
+                                      ? Offset(
+                                          -event.scrollDelta.dy,
+                                          -event.scrollDelta.dx,
+                                        )
+                                      : -event.scrollDelta;
+                                  tc.move(tc.state.localToGlobalDelta(delta));
+                                }
+                                context.read<DocumentBloc>().delayedBake(
+                                  viewportSize: constraints.biggest,
+                                  pixelRatio: MediaQuery.devicePixelRatioOf(
+                                    context,
                                   ),
-                                  child: MouseRegion(
-                                    opaque: false,
-                                    cursor: SystemMouseCursors.text,
-                                    child: RawGestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      gestures: <Type, GestureRecognizerFactory>{
-                                        _PrimaryOnlyPanRecognizer:
-                                            GestureRecognizerFactoryWithHandlers<
-                                              _PrimaryOnlyPanRecognizer
-                                            >(
-                                              () => _PrimaryOnlyPanRecognizer(),
-                                              (_PrimaryOnlyPanRecognizer instance) {
-                                                instance
-                                                  ..onStart = (details) {
-                                                    final worldPos = transform
-                                                        .localToGlobal(
-                                                          details.localPosition,
-                                                        );
-                                                    final target = _findTargetPage(
-                                                      worldPos,
-                                                      docState,
-                                                      studyState.pdfCrop,
-                                                      ocrState,
+                                  testTransform: false,
+                                );
+                              }
+                            },
+                            onPointerDown: (event) {
+                              ocrCubit.notifyUserBusy();
+                              if (event.kind == PointerDeviceKind.touch) {
+                                _touchPointers.add(event.pointer);
+                                if (_touchPointers.length >= 2) {
+                                  ocrCubit.clearSelection();
+                                  return;
+                                }
+                              }
+                              if (event.buttons != kPrimaryMouseButton &&
+                                  event.kind == PointerDeviceKind.mouse) {
+                                return;
+                              }
+                              final transform =
+                                  context.read<TransformCubit>().state;
+                              if (ocrState.selection != null &&
+                                  !_hitTestOcrLine(
+                                    event.localPosition,
+                                    docState: docState,
+                                    transform: transform,
+                                    crop: studyState.pdfCrop,
+                                    ocrState: ocrState,
+                                  )) {
+                                ocrCubit.clearSelection();
+                              }
+                            },
+                            onPointerUp: (event) {
+                              _touchPointers.remove(event.pointer);
+                            },
+                            onPointerCancel: (event) {
+                              _touchPointers.remove(event.pointer);
+                            },
+                            child: _SelectiveHitTestWidget(
+                              onHitTest: (localPos) => _hitTestOcrLine(
+                                localPos,
+                                docState: docState,
+                                transform: context.read<TransformCubit>().state,
+                                crop: studyState.pdfCrop,
+                                ocrState: ocrState,
+                              ),
+                              child: MouseRegion(
+                                opaque: false,
+                                cursor: SystemMouseCursors.text,
+                                child: RawGestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  gestures: <Type, GestureRecognizerFactory>{
+                                    _PrimaryOnlyPanRecognizer:
+                                        GestureRecognizerFactoryWithHandlers<
+                                          _PrimaryOnlyPanRecognizer
+                                        >(
+                                          () => _PrimaryOnlyPanRecognizer(),
+                                          (_PrimaryOnlyPanRecognizer instance) {
+                                            instance
+                                              ..onStart = (details) {
+                                                ocrCubit.notifyUserBusy();
+                                                final transform = context
+                                                    .read<TransformCubit>()
+                                                    .state;
+                                                final worldPos = transform
+                                                    .localToGlobal(
+                                                      details.localPosition,
                                                     );
-                                                    _dragPdf = target?.pdf;
-                                                    _dragFullBounds =
-                                                        target?.fullBounds;
-                                                    _dragOcrPage = target?.ocrPage;
-                                                    _dragStartWorld = worldPos;
-                                                    ocrCubit.clearSelection();
-                                                  }
-                                                  ..onUpdate = (details) {
-                                                    final pdf = _dragPdf;
-                                                    final bounds = _dragFullBounds;
-                                                    final ocrPage = _dragOcrPage;
-                                                    final startWorld =
-                                                        _dragStartWorld;
-                                                    if (pdf == null ||
-                                                        bounds == null ||
-                                                        ocrPage == null ||
-                                                        startWorld == null) {
-                                                      return;
-                                                    }
-                                                    final endWorld = transform
-                                                        .localToGlobal(
-                                                          details.localPosition,
-                                                        );
-                                                    final nextSelection =
-                                                        _buildSelection(
-                                                          pdf: pdf,
-                                                          fullBounds: bounds,
-                                                          ocrPage: ocrPage,
-                                                          transform: transform,
-                                                          startWorld: startWorld,
-                                                          endWorld: endWorld,
-                                                        );
-                                                    ocrCubit.setSelection(
-                                                      nextSelection,
+                                                final target = _findTargetPage(
+                                                  worldPos,
+                                                  docState,
+                                                  studyState.pdfCrop,
+                                                  ocrState,
+                                                );
+                                                _dragPdfSource =
+                                                    target?.pdfSource;
+                                                _dragPageIndex =
+                                                    target?.pageIndex;
+                                                _dragFullBounds =
+                                                    target?.fullBounds;
+                                                _dragOcrPage = target?.ocrPage;
+                                                _dragStartWorld = worldPos;
+                                                ocrCubit.clearSelection();
+                                              }
+                                              ..onUpdate = (details) {
+                                                ocrCubit.notifyUserBusy();
+                                                final pdfSource = _dragPdfSource;
+                                                final pageIndex = _dragPageIndex;
+                                                final bounds = _dragFullBounds;
+                                                final ocrPage = _dragOcrPage;
+                                                final startWorld =
+                                                    _dragStartWorld;
+                                                if (pdfSource == null ||
+                                                    pageIndex == null ||
+                                                    bounds == null ||
+                                                    ocrPage == null ||
+                                                    startWorld == null) {
+                                                  return;
+                                                }
+                                                final transform = context
+                                                    .read<TransformCubit>()
+                                                    .state;
+                                                final endWorld = transform
+                                                    .localToGlobal(
+                                                      details.localPosition,
                                                     );
-                                                  }
-                                                  ..onEnd = (_) {
-                                                    _dragPdf = null;
-                                                    _dragFullBounds = null;
-                                                    _dragOcrPage = null;
-                                                    _dragStartWorld = null;
-                                                  }
-                                                  ..onCancel = () {
-                                                    _dragPdf = null;
-                                                    _dragFullBounds = null;
-                                                    _dragOcrPage = null;
-                                                    _dragStartWorld = null;
-                                                  };
-                                              },
-                                            ),
-                                      },
-                                      child: const SizedBox.expand(),
-                                    ),
-                                  ),
+                                                final nextSelection =
+                                                    _buildSelection(
+                                                      pdfSource: pdfSource,
+                                                      pageIndex: pageIndex,
+                                                      fullBounds: bounds,
+                                                      ocrPage: ocrPage,
+                                                      transform: transform,
+                                                      startWorld: startWorld,
+                                                      endWorld: endWorld,
+                                                    );
+                                                ocrCubit.setSelection(
+                                                  nextSelection,
+                                                );
+                                              }
+                                              ..onEnd = (_) {
+                                                _dragPdfSource = null;
+                                                _dragPageIndex = null;
+                                                _dragFullBounds = null;
+                                                _dragOcrPage = null;
+                                                _dragStartWorld = null;
+                                              }
+                                              ..onCancel = () {
+                                                _dragPdfSource = null;
+                                                _dragPageIndex = null;
+                                                _dragFullBounds = null;
+                                                _dragOcrPage = null;
+                                                _dragStartWorld = null;
+                                              };
+                                          },
+                                        ),
+                                  },
+                                  child: const SizedBox.expand(),
                                 ),
                               ),
                             ),
-                            if (selection != null && selection.isNotEmpty)
-                              _FloatingSelectionMenu(
-                                maxWidth: constraints.maxWidth,
-                                maxHeight: constraints.maxHeight,
-                                selection: selection,
-                                onCopy: () async {
-                                  await Clipboard.setData(
-                                    ClipboardData(text: selection.text),
-                                  );
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '已复制 ${selection.text.length} 个字符',
-                                      ),
-                                      duration: const Duration(seconds: 2),
-                                    ),
-                                  );
-                                  ocrCubit.clearSelection();
-                                },
-                                onAddToCanvas: () async {
-                                  await insertTextExcerptToCanvas(
-                                    context,
-                                    text: selection.text,
-                                    anchorWorldRect: _unionWorldRects(
-                                      selection.worldRects,
-                                    ),
-                                  );
-                                  ocrCubit.clearSelection();
-                                },
-                                onAskAi: () {
-                                  final unionRect = _unionWorldRects(
-                                    selection.worldRects,
-                                  );
-                                  studyCubit.setPendingSnip(
-                                    SnippedRegion(
-                                      pngBytes: Uint8List(0),
-                                      canvasRect: unionRect,
-                                      pdfPageNumber: selection.pageIndex + 1,
-                                      documentName: docState.metadata.name,
-                                      ocrText: selection.text,
-                                    ),
-                                  );
-                                  studyCubit.setInspectorOpen(true);
-                                  studyCubit.openStudyPanel(StudyPanelTab.aiTutor);
-                                  ocrCubit.clearSelection();
-                                },
-                              ),
-                          ],
-                        );
-                      },
+                          ),
+                        ),
+                        if (selection != null && selection.isNotEmpty)
+                          _FloatingSelectionMenu(
+                            maxWidth: constraints.maxWidth,
+                            maxHeight: constraints.maxHeight,
+                            selection: selection,
+                            onCopy: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: selection.text),
+                              );
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '已复制 ${selection.text.length} 个字符',
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                              ocrCubit.clearSelection();
+                            },
+                            onAddToCanvas: () async {
+                              await insertTextExcerptToCanvas(
+                                context,
+                                text: selection.text,
+                                anchorWorldRect: _unionWorldRects(
+                                  selection.worldRects,
+                                ),
+                              );
+                              ocrCubit.clearSelection();
+                            },
+                            onAskAi: () {
+                              final unionRect = _unionWorldRects(
+                                selection.worldRects,
+                              );
+                              studyCubit.setPendingSnip(
+                                SnippedRegion(
+                                  pngBytes: Uint8List(0),
+                                  canvasRect: unionRect,
+                                  pdfPageNumber: selection.pageIndex + 1,
+                                  documentName: docState.metadata.name,
+                                  ocrText: selection.text,
+                                ),
+                              );
+                              studyCubit.setInspectorOpen(true);
+                              studyCubit.openStudyPanel(StudyPanelTab.aiTutor);
+                              ocrCubit.clearSelection();
+                            },
+                          ),
+                      ],
                     );
                   },
                 );

@@ -150,6 +150,8 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
   final GlobalKey _canvasCaptureKey = GlobalKey();
   StudyModeCubit? _fallbackStudyCubit;
   DateTime? _suppressReadingRecordUntil;
+  Timer? _ocrFollowTimer;
+  String? _lastAutoBoundKey;
   int _loadGeneration = 0;
   int _calibrationGeneration = 0;
 
@@ -967,6 +969,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _ocrFollowTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     final exitKey = _exitKey;
     if (ProjectPage._exitChecks[exitKey] == _confirmExit) {
@@ -993,6 +996,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
         maybeStudyModeCubit(context) ??
         (_fallbackStudyCubit ??= StudyModeCubit());
     final ocrCubit = maybeOcrCubit(context);
+    ocrCubit?.syncAiConfig(studyCubit.state.aiConfig);
     return MultiBlocProvider(
       providers: [
         BlocProvider.value(value: runtime.bloc),
@@ -1016,6 +1020,18 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
               message: state.message,
               stackTrace: state.stackTrace,
             );
+          }
+          if (state is DocumentLoadSuccess && ocrCubit != null) {
+            final bindKey =
+                '${identityHashCode(state.data)}_${state.pageName}_${state.page.content.length}';
+            if (ocrCubit.state.activePdfSource == null ||
+                _lastAutoBoundKey != bindKey) {
+              _lastAutoBoundKey = bindKey;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                _bindOcrForState(context, state);
+              });
+            }
           }
           return MultiRepositoryProvider(
             providers: [
@@ -1204,6 +1220,17 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                           ),
                                         if (ocrCubit != null)
                                           BlocListener<
+                                            StudyModeCubit,
+                                            StudyModeState
+                                          >(
+                                            bloc: studyCubit,
+                                            listenWhen: (prev, curr) =>
+                                                prev.aiConfig != curr.aiConfig,
+                                            listener: (_, s) =>
+                                                ocrCubit.syncAiConfig(s.aiConfig),
+                                          ),
+                                        if (ocrCubit != null)
+                                          BlocListener<
                                             TransformCubit,
                                             CameraTransform
                                           >(
@@ -1211,29 +1238,43 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                             listenWhen: (prev, curr) =>
                                                 prev.position != curr.position,
                                             listener: (context, _) {
-                                              if (ocrCubit.state.scope !=
-                                                  OcrScope.progressive) {
+                                              ocrCubit.notifyUserBusy();
+                                              _ocrFollowTimer?.cancel();
+                                              if (ocrCubit.state.isRunning) {
                                                 return;
                                               }
-                                              final docState = runtime.bloc.state;
-                                              if (docState
-                                                  is! DocumentLoadSuccess) {
-                                                return;
-                                              }
-                                              final primary = PdfStudyService
-                                                  .indexDocumentPdfs(docState)
-                                                  .firstOrNull;
-                                              if (primary == null) return;
-                                              final focusIdx =
-                                                  PdfCanvasReflowService
-                                                      .detectCurrentPageIndex(
-                                                        context,
-                                                        primary,
-                                                      );
-                                              unawaited(
-                                                ocrCubit.ensureProgressiveAround(
-                                                  focusIdx,
+                                              _ocrFollowTimer = Timer(
+                                                const Duration(
+                                                  milliseconds: 650,
                                                 ),
+                                                () {
+                                                  if (!mounted) return;
+                                                  final docState =
+                                                      runtime.bloc.state;
+                                                  if (docState
+                                                      is! DocumentLoadSuccess) {
+                                                    return;
+                                                  }
+                                                  final primary =
+                                                      PdfStudyService
+                                                          .indexDocumentPdfs(
+                                                            docState,
+                                                          )
+                                                          .firstOrNull;
+                                                  if (primary == null) return;
+                                                  final focusIdx =
+                                                      PdfCanvasReflowService
+                                                          .detectCurrentPageIndex(
+                                                            context,
+                                                            primary,
+                                                          );
+                                                  unawaited(
+                                                    ocrCubit
+                                                        .ensureProgressiveAround(
+                                                          focusIdx,
+                                                        ),
+                                                  );
+                                                },
                                               );
                                             },
                                           ),

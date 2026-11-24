@@ -31,6 +31,16 @@ enum OcrScope {
   };
 }
 
+enum OcrEngineMode {
+  localNative,
+  openAiVision;
+
+  String get label => switch (this) {
+    OcrEngineMode.localNative => '本地离线 (系统 / ML Kit)',
+    OcrEngineMode.openAiVision => 'OpenAI 视觉 API',
+  };
+}
+
 @immutable
 class OcrWordBox {
   final String text;
@@ -213,6 +223,7 @@ class OcrState {
   final double whiteBgOpacity;
   final OcrLanguage language;
   final OcrScope scope;
+  final OcrEngineMode engineMode;
   final Map<int, OcrPageResult> pages;
   final OcrSelectionState? selection;
   final String? statusError;
@@ -229,7 +240,8 @@ class OcrState {
     this.whiteBgVisible = false,
     this.whiteBgOpacity = 1.0,
     this.language = OcrLanguage.zhEn,
-    this.scope = OcrScope.entireDocument,
+    this.scope = OcrScope.progressive,
+    this.engineMode = OcrEngineMode.localNative,
     this.pages = const {},
     this.selection,
     this.statusError,
@@ -253,6 +265,7 @@ class OcrState {
     double? whiteBgOpacity,
     OcrLanguage? language,
     OcrScope? scope,
+    OcrEngineMode? engineMode,
     Map<int, OcrPageResult>? pages,
     Object? selection = _unset,
     Object? statusError = _unset,
@@ -273,6 +286,7 @@ class OcrState {
     whiteBgOpacity: (whiteBgOpacity ?? this.whiteBgOpacity).clamp(0.0, 1.0),
     language: language ?? this.language,
     scope: scope ?? this.scope,
+    engineMode: engineMode ?? this.engineMode,
     pages: pages ?? this.pages,
     selection: identical(selection, _unset)
         ? this.selection

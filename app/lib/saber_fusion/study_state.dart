@@ -48,31 +48,49 @@ class AiTutorConfig {
 
   final String baseUrl;
   final String model;
+  final String visionModel;
   final String apiKey;
   final String systemPrompt;
+  final double temperature;
+  final int maxTokens;
 
   const AiTutorConfig({
     this.baseUrl = defaultBaseUrl,
     this.model = defaultModel,
+    this.visionModel = '',
     this.apiKey = '',
     this.systemPrompt = defaultSystemPrompt,
+    this.temperature = 0.2,
+    this.maxTokens = 2048,
   });
 
-  bool get isConfigured =>
-      baseUrl.trim().isNotEmpty &&
-      model.trim().isNotEmpty &&
-      apiKey.trim().isNotEmpty;
+  String get effectiveVisionModel =>
+      visionModel.trim().isNotEmpty ? visionModel.trim() : model.trim();
+
+  bool get isConfigured {
+    final url = baseUrl.trim();
+    final mdl = model.trim();
+    if (url.isEmpty || mdl.isEmpty) return false;
+    final isLocal = url.contains('127.0.0.1') || url.contains('localhost');
+    return isLocal || apiKey.trim().isNotEmpty;
+  }
 
   AiTutorConfig copyWith({
     String? baseUrl,
     String? model,
+    String? visionModel,
     String? apiKey,
     String? systemPrompt,
+    double? temperature,
+    int? maxTokens,
   }) => AiTutorConfig(
     baseUrl: baseUrl ?? this.baseUrl,
     model: model ?? this.model,
+    visionModel: visionModel ?? this.visionModel,
     apiKey: apiKey ?? this.apiKey,
     systemPrompt: systemPrompt ?? this.systemPrompt,
+    temperature: (temperature ?? this.temperature).clamp(0.0, 2.0),
+    maxTokens: (maxTokens ?? this.maxTokens).clamp(64, 32768),
   );
 }
 
@@ -168,7 +186,10 @@ class StudyModeCubit extends Cubit<StudyModeState> {
   static const _prefInspectorOpen = 'saber_fusion.inspector_open_v1';
   static const _prefAiBaseUrl = 'saber_fusion.ai_base_url';
   static const _prefAiModel = 'saber_fusion.ai_model';
+  static const _prefAiVisionModel = 'saber_fusion.ai_vision_model';
   static const _prefAiPrompt = 'saber_fusion.ai_system_prompt';
+  static const _prefAiTemperature = 'saber_fusion.ai_temperature';
+  static const _prefAiMaxTokens = 'saber_fusion.ai_max_tokens';
   static const _prefPdfCrop = 'saber_fusion.pdf_crop_v1';
   static const _secureAiKey = 'saber_fusion.ai_api_key';
 
@@ -198,8 +219,13 @@ class StudyModeCubit extends Cubit<StudyModeState> {
       final inspectorOpen = prefs.getBool(_prefInspectorOpen) ?? true;
       final baseUrl = prefs.getString(_prefAiBaseUrl) ?? AiTutorConfig.defaultBaseUrl;
       final model = prefs.getString(_prefAiModel) ?? AiTutorConfig.defaultModel;
+      final visionModel = prefs.getString(_prefAiVisionModel) ?? '';
       final prompt =
           prefs.getString(_prefAiPrompt) ?? AiTutorConfig.defaultSystemPrompt;
+      final temperature =
+          (prefs.getDouble(_prefAiTemperature) ?? 0.2).clamp(0.0, 2.0);
+      final maxTokens =
+          (prefs.getInt(_prefAiMaxTokens) ?? 2048).clamp(64, 32768);
       var pdfCrop = const PdfMarginCropConfig();
       final cropRaw = prefs.getString(_prefPdfCrop);
       if (cropRaw != null && cropRaw.isNotEmpty) {
@@ -226,8 +252,11 @@ class StudyModeCubit extends Cubit<StudyModeState> {
             aiConfig: AiTutorConfig(
               baseUrl: baseUrl,
               model: model,
+              visionModel: visionModel,
               apiKey: apiKey,
               systemPrompt: prompt,
+              temperature: temperature,
+              maxTokens: maxTokens,
             ),
           ),
         );
@@ -307,7 +336,10 @@ class StudyModeCubit extends Cubit<StudyModeState> {
     await _savePref((prefs) async {
       await prefs.setString(_prefAiBaseUrl, config.baseUrl);
       await prefs.setString(_prefAiModel, config.model);
+      await prefs.setString(_prefAiVisionModel, config.visionModel);
       await prefs.setString(_prefAiPrompt, config.systemPrompt);
+      await prefs.setDouble(_prefAiTemperature, config.temperature);
+      await prefs.setInt(_prefAiMaxTokens, config.maxTokens);
     });
     try {
       if (config.apiKey.isEmpty) {

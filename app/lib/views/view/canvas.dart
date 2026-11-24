@@ -245,7 +245,12 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
           }
           rendererCubit.notifyRepaint();
         } else {
-          unawaited(context.read<DocumentBloc>().bake(reset: true));
+          rendererCubit.notifyRepaint();
+          context.read<DocumentBloc>().delayedBake(
+            viewportSize: MediaQuery.sizeOf(context),
+            pixelRatio: MediaQuery.devicePixelRatioOf(context),
+            testTransform: false,
+          );
         }
       },
       child: child,

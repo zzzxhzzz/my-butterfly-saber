@@ -13,6 +13,421 @@ import 'ai_tutor_service.dart';
 import 'mistake_bank_service.dart';
 import 'study_state.dart';
 
+Future<void> showOpenAiApiSettingsDialog(BuildContext context) async {
+  final studyCubit = maybeStudyModeCubit(context);
+  if (studyCubit == null) return;
+  final current = studyCubit.state.aiConfig;
+  final urlCtrl = TextEditingController(text: current.baseUrl);
+  final modelCtrl = TextEditingController(text: current.model);
+  final visionCtrl = TextEditingController(text: current.visionModel);
+  final keyCtrl = TextEditingController(text: current.apiKey);
+  final tempCtrl = TextEditingController(
+    text: current.temperature.toStringAsFixed(1),
+  );
+  final tokensCtrl = TextEditingController(text: '${current.maxTokens}');
+  final promptCtrl = TextEditingController(text: current.systemPrompt);
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => _OpenAiApiSettingsDialog(
+      urlCtrl: urlCtrl,
+      modelCtrl: modelCtrl,
+      visionCtrl: visionCtrl,
+      keyCtrl: keyCtrl,
+      tempCtrl: tempCtrl,
+      tokensCtrl: tokensCtrl,
+      promptCtrl: promptCtrl,
+      onSave: (cfg) => studyCubit.updateAiConfig(cfg),
+    ),
+  );
+
+  urlCtrl.dispose();
+  modelCtrl.dispose();
+  visionCtrl.dispose();
+  keyCtrl.dispose();
+  tempCtrl.dispose();
+  tokensCtrl.dispose();
+  promptCtrl.dispose();
+}
+
+class _OpenAiApiSettingsDialog extends StatefulWidget {
+  final TextEditingController urlCtrl;
+  final TextEditingController modelCtrl;
+  final TextEditingController visionCtrl;
+  final TextEditingController keyCtrl;
+  final TextEditingController tempCtrl;
+  final TextEditingController tokensCtrl;
+  final TextEditingController promptCtrl;
+  final Future<void> Function(AiTutorConfig config) onSave;
+
+  const _OpenAiApiSettingsDialog({
+    required this.urlCtrl,
+    required this.modelCtrl,
+    required this.visionCtrl,
+    required this.keyCtrl,
+    required this.tempCtrl,
+    required this.tokensCtrl,
+    required this.promptCtrl,
+    required this.onSave,
+  });
+
+  @override
+  State<_OpenAiApiSettingsDialog> createState() =>
+      _OpenAiApiSettingsDialogState();
+}
+
+class _OpenAiApiSettingsDialogState extends State<_OpenAiApiSettingsDialog> {
+  bool _obscureKey = true;
+  bool _testing = false;
+  bool _fetchingModels = false;
+  String? _statusText;
+  bool _statusIsError = false;
+
+  AiTutorConfig _draftConfig() {
+    final parsedTemp = double.tryParse(widget.tempCtrl.text.trim()) ?? 0.2;
+    final parsedTokens = int.tryParse(widget.tokensCtrl.text.trim()) ?? 2048;
+    return AiTutorConfig(
+      baseUrl: widget.urlCtrl.text.trim(),
+      model: widget.modelCtrl.text.trim(),
+      visionModel: widget.visionCtrl.text.trim(),
+      apiKey: widget.keyCtrl.text.trim(),
+      systemPrompt: widget.promptCtrl.text.trim(),
+      temperature: parsedTemp.clamp(0.0, 2.0),
+      maxTokens: parsedTokens.clamp(64, 32768),
+    );
+  }
+
+  String _endpointPreview() {
+    final raw = widget.urlCtrl.text.trim();
+    if (raw.isEmpty) return '填写后自动归一化为 .../v1/chat/completions';
+    try {
+      return '实际请求端点：${AiTutorService.normalizeCompletionsUri(raw)}';
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  Future<void> _testConnection({required bool vision}) async {
+    if (_testing) return;
+    setState(() {
+      _testing = true;
+      _statusText = vision ? '正在测试视觉识图连通性…' : '正在测试文本对话连通性…';
+      _statusIsError = false;
+    });
+    try {
+      final cfg = _draftConfig();
+      if (vision) {
+        final r = await AiTutorService.testVisionConnection(cfg);
+        if (!mounted) return;
+        setState(() {
+          _statusText =
+              '视觉识图正常（${r.latencyMs}ms · ${r.model}）回复：${r.reply}';
+          _statusIsError = false;
+        });
+      } else {
+        final r = await AiTutorService.testTextConnection(cfg);
+        if (!mounted) return;
+        setState(() {
+          _statusText =
+              '文本连通正常（${r.latencyMs}ms · ${r.model}）回复：${r.reply}';
+          _statusIsError = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _statusText = e.toString();
+        _statusIsError = true;
+      });
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  Future<void> _fetchAndPickModel() async {
+    if (_fetchingModels) return;
+    setState(() {
+      _fetchingModels = true;
+      _statusText = '正在从 /models 拉取可用模型…';
+      _statusIsError = false;
+    });
+    try {
+      final models = await AiTutorService.fetchAvailableModels(_draftConfig());
+      if (!mounted) return;
+      if (models.isEmpty) {
+        setState(() {
+          _statusText = '接口未返回可用模型列表，请手动输入模型名。';
+          _statusIsError = true;
+        });
+        return;
+      }
+      setState(() {
+        _statusText = '成功拉取 ${models.length} 个模型，点击下方列表即可填入。';
+        _statusIsError = false;
+      });
+      await showDialog<void>(
+        context: context,
+        builder: (pickCtx) => AlertDialog(
+          title: Text('选择模型（共 ${models.length} 个）'),
+          content: SizedBox(
+            width: 380,
+            height: 340,
+            child: ListView.builder(
+              itemCount: models.length,
+              itemBuilder: (_, idx) {
+                final id = models[idx];
+                return ListTile(
+                  dense: true,
+                  title: Text(id),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          widget.modelCtrl.text = id;
+                          Navigator.pop(pickCtx);
+                        },
+                        child: const Text('设为对话'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          widget.visionCtrl.text = id;
+                          Navigator.pop(pickCtx);
+                        },
+                        child: const Text('设为识图'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(pickCtx),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _statusText = e.toString();
+        _statusIsError = true;
+      });
+    } finally {
+      if (mounted) setState(() => _fetchingModels = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = ColorScheme.of(context);
+    return AlertDialog(
+      title: const Row(
+        children: [
+          PhosphorIcon(PhosphorIconsLight.sparkle, size: 18),
+          SizedBox(width: 8),
+          Text('OpenAI 格式 API 接口配置'),
+        ],
+      ),
+      content: SizedBox(
+        width: 470,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '常用 OpenAI 兼容服务商预设：',
+                style: TextTheme.of(context).labelMedium,
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final preset in AiTutorService.providerPresets)
+                    ActionChip(
+                      label: Text(
+                        preset.name,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          widget.urlCtrl.text = preset.baseUrl;
+                          widget.modelCtrl.text = preset.defaultModel;
+                          widget.visionCtrl.text = preset.defaultVisionModel;
+                        });
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: widget.urlCtrl,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Base URL (支持 /v1、中转站、Ollama 等)',
+                  hintText: 'https://api.openai.com/v1',
+                  filled: true,
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _endpointPreview(),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: widget.keyCtrl,
+                obscureText: _obscureKey,
+                decoration: InputDecoration(
+                  labelText: 'API Key（加密保存于本机安全存储）',
+                  hintText: 'sk-...',
+                  filled: true,
+                  isDense: true,
+                  suffixIcon: TextButton(
+                    onPressed: () => setState(() => _obscureKey = !_obscureKey),
+                    child: Text(_obscureKey ? '显示' : '隐藏'),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: widget.modelCtrl,
+                      decoration: const InputDecoration(
+                        labelText: '对话模型名称',
+                        hintText: 'gpt-4o-mini / deepseek-chat / qwen-plus',
+                        filled: true,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: _fetchingModels ? null : _fetchAndPickModel,
+                    child: Text(_fetchingModels ? '拉取中…' : '拉取模型'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: widget.visionCtrl,
+                decoration: const InputDecoration(
+                  labelText: '视觉识图模型（可选，留空同对话模型）',
+                  hintText: 'gpt-4o / qwen-vl-max / gemini-2.5-flash',
+                  filled: true,
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: widget.tempCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Temperature (0~2)',
+                        filled: true,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: widget.tokensCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Max Tokens',
+                        filled: true,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: widget.promptCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: '系统提示词',
+                  filled: true,
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  OutlinedButton(
+                    onPressed: _testing
+                        ? null
+                        : () => _testConnection(vision: false),
+                    child: const Text('测试文本连通'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _testing
+                        ? null
+                        : () => _testConnection(vision: true),
+                    child: const Text('测试识图能力'),
+                  ),
+                ],
+              ),
+              if (_statusText != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _statusIsError
+                        ? colorScheme.errorContainer
+                        : colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    _statusText!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _statusIsError
+                          ? colorScheme.onErrorContainer
+                          : colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () async {
+            await widget.onSave(_draftConfig());
+            if (context.mounted) Navigator.pop(context);
+          },
+          child: const Text('保存配置'),
+        ),
+      ],
+    );
+  }
+}
+
 class AiTutorTab extends StatefulWidget {
   const AiTutorTab({super.key});
 
@@ -173,112 +588,7 @@ class _AiTutorTabState extends State<AiTutorTab> {
     noteCtrl.dispose();
   }
 
-  Future<void> _openAiSettingsDialog() async {
-    final studyCubit = context.read<StudyModeCubit>();
-    final current = studyCubit.state.aiConfig;
-    final urlCtrl = TextEditingController(text: current.baseUrl);
-    final modelCtrl = TextEditingController(text: current.model);
-    final keyCtrl = TextEditingController(text: current.apiKey);
-    final promptCtrl = TextEditingController(text: current.systemPrompt);
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('AI 视觉助教配置'),
-        content: SizedBox(
-          width: 440,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '快速填入常用接口：',
-                  style: TextTheme.of(dialogContext).labelMedium,
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final preset in AiTutorService.providerPresets)
-                      ActionChip(
-                        label: Text(preset.name),
-                        onPressed: () {
-                          urlCtrl.text = preset.baseUrl;
-                          modelCtrl.text = preset.defaultModel;
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: urlCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Base URL (OpenAI 兼容)',
-                    hintText: 'https://api.openai.com/v1',
-                    filled: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: modelCtrl,
-                  decoration: const InputDecoration(
-                    labelText: '视觉模型名称 (支持识图)',
-                    hintText: 'gpt-4o-mini / qwen-vl-max / gemini-2.5-flash',
-                    filled: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: keyCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'API Key（加密保存于本机安全存储）',
-                    filled: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: promptCtrl,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: '系统提示词',
-                    filled: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              await studyCubit.updateAiConfig(
-                AiTutorConfig(
-                  baseUrl: urlCtrl.text.trim(),
-                  model: modelCtrl.text.trim(),
-                  apiKey: keyCtrl.text.trim(),
-                  systemPrompt: promptCtrl.text.trim(),
-                ),
-              );
-              if (dialogContext.mounted) Navigator.pop(dialogContext);
-            },
-            child: const Text('保存配置'),
-          ),
-        ],
-      ),
-    );
-
-    urlCtrl.dispose();
-    modelCtrl.dispose();
-    keyCtrl.dispose();
-    promptCtrl.dispose();
-  }
+  Future<void> _openAiSettingsDialog() => showOpenAiApiSettingsDialog(context);
 
   @override
   Widget build(BuildContext context) {

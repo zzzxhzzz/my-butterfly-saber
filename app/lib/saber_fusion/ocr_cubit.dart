@@ -8,8 +8,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:butterfly/saber_fusion/ocr_models.dart';
-import 'package:butterfly/saber_fusion/ocr_service.dart';
+import 'ocr_models.dart';
+import 'ocr_service.dart';
+import 'study_state.dart';
 
 OcrCubit? maybeOcrCubit(BuildContext context) {
   try {
@@ -24,6 +25,8 @@ class OcrCubit extends Cubit<OcrState> {
   static const _prefWhiteOpacity = 'saber_fusion.ocr_white_opacity_v1';
   static const _prefLanguage = 'saber_fusion.ocr_language_v1';
   static const _prefScope = 'saber_fusion.ocr_scope_v1';
+  static const _prefEngineMode = 'saber_fusion.ocr_engine_v1';
+  static const _defaultCooldown = Duration(milliseconds: 850);
 
   final OcrService _service;
   final Map<String, String> _docHashCache = {};
@@ -33,10 +36,37 @@ class OcrCubit extends Cubit<OcrState> {
   AssetService? _boundAssets;
   PdfDocument? _boundPdf;
   int _lastFocusPage = 0;
+  DateTime _busyUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  AiTutorConfig _latestAiConfig = const AiTutorConfig();
 
   OcrCubit({OcrService? service})
     : _service = service ?? OcrService(),
       super(const OcrState());
+
+  void syncAiConfig(AiTutorConfig config) {
+    _latestAiConfig = config;
+  }
+
+  /// Interaction-first cooldown: pauses background OCR while user scrolls,
+  /// zooms, or edits so canvas rendering stays responsive at 60fps.
+  void notifyUserBusy([Duration duration = _defaultCooldown]) {
+    final target = DateTime.now().add(duration);
+    if (target.isAfter(_busyUntil)) {
+      _busyUntil = target;
+    }
+  }
+
+  Future<void> _waitUntilIdle(int token) async {
+    while (!isClosed && token == _jobToken) {
+      final now = DateTime.now();
+      if (!now.isBefore(_busyUntil)) return;
+      final remaining = _busyUntil.difference(now);
+      final waitStep = remaining.inMilliseconds > 160
+          ? const Duration(milliseconds: 160)
+          : remaining;
+      await Future<void>.delayed(waitStep);
+    }
+  }
 
   Future<void> load() async {
     try {
@@ -45,6 +75,7 @@ class OcrCubit extends Cubit<OcrState> {
       final opacity = (prefs.getDouble(_prefWhiteOpacity) ?? 1.0).clamp(0.0, 1.0);
       final langName = prefs.getString(_prefLanguage);
       final scopeName = prefs.getString(_prefScope);
+      final engineName = prefs.getString(_prefEngineMode);
 
       final language = OcrLanguage.values.firstWhere(
         (e) => e.name == langName,
@@ -52,7 +83,11 @@ class OcrCubit extends Cubit<OcrState> {
       );
       final scope = OcrScope.values.firstWhere(
         (e) => e.name == scopeName,
-        orElse: () => OcrScope.entireDocument,
+        orElse: () => OcrScope.progressive,
+      );
+      final engineMode = OcrEngineMode.values.firstWhere(
+        (e) => e.name == engineName,
+        orElse: () => OcrEngineMode.localNative,
       );
 
       if (!isClosed) {
@@ -62,6 +97,7 @@ class OcrCubit extends Cubit<OcrState> {
             whiteBgOpacity: opacity,
             language: language,
             scope: scope,
+            engineMode: engineMode,
           ),
         );
       }
@@ -111,6 +147,7 @@ class OcrCubit extends Cubit<OcrState> {
     }
     _boundPdf = pdf;
 
+    final totalPages = pdf.pages.length;
     var docHash = _docHashCache[pdfSource];
     if (docHash == null) {
       final bytes = await _service.readPdfBytes(
@@ -125,18 +162,75 @@ class OcrCubit extends Cubit<OcrState> {
       _docHashCache[pdfSource] = docHash;
     }
 
-    final totalPages = pdf.pages.length;
-    final langTag = state.language.nativeTag;
-    final cachedPages = <int, OcrPageResult>{};
-    for (var i = 0; i < totalPages; i++) {
-      final hit = await _service.loadCachedPage(
+    // Emit totalPages immediately so UI never hangs at 0 / 0 on 300+ page docs.
+    emit(
+      state.copyWith(
+        activePdfSource: pdfSource,
         docHash: docHash,
-        langTag: langTag,
-        pageIndex: i,
-      );
-      if (isClosed || token != _jobToken) return;
-      if (hit != null) {
-        cachedPages[i] = hit;
+        totalPages: totalPages,
+        completedPages: 0,
+        cacheHitPages: 0,
+        pages: const {},
+        isRunning: false,
+        currentRunningPage: null,
+        statusError: null,
+      ),
+    );
+
+    final cacheTag = OcrService.cacheTagFor(state.language, state.engineMode);
+    final cachedIndices = await _service.listCachedPageIndices(
+      docHash: docHash,
+      cacheTag: cacheTag,
+    );
+    if (isClosed || token != _jobToken) return;
+
+    final cachedPages = <int, OcrPageResult>{};
+    if (cachedIndices.isNotEmpty) {
+      // Load nearby viewport pages first for instant interactivity.
+      final clampedFocus = initialFocusPage.clamp(0, totalPages - 1);
+      final priorityIndices = <int>[];
+      final restIndices = <int>[];
+      for (final idx in cachedIndices) {
+        if (idx >= 0 && idx < totalPages) {
+          if ((idx - clampedFocus).abs() <= 4) {
+            priorityIndices.add(idx);
+          } else {
+            restIndices.add(idx);
+          }
+        }
+      }
+
+      for (final idx in priorityIndices) {
+        final hit = await _service.loadCachedPage(
+          docHash: docHash,
+          cacheTag: cacheTag,
+          pageIndex: idx,
+        );
+        if (isClosed || token != _jobToken) return;
+        if (hit != null) cachedPages[idx] = hit;
+      }
+
+      if (priorityIndices.isNotEmpty && restIndices.isNotEmpty) {
+        emit(
+          state.copyWith(
+            completedPages: cachedPages.length,
+            cacheHitPages: cachedPages.length,
+            pages: Map.unmodifiable(cachedPages),
+          ),
+        );
+      }
+
+      for (var i = 0; i < restIndices.length; i++) {
+        final hit = await _service.loadCachedPage(
+          docHash: docHash,
+          cacheTag: cacheTag,
+          pageIndex: restIndices[i],
+        );
+        if (isClosed || token != _jobToken) return;
+        if (hit != null) cachedPages[restIndices[i]] = hit;
+        if (i % 24 == 23) {
+          await Future<void>.delayed(Duration.zero);
+        }
       }
     }
 
@@ -154,6 +248,11 @@ class OcrCubit extends Cubit<OcrState> {
       ),
     );
 
+    if (state.engineMode == OcrEngineMode.openAiVision &&
+        !_latestAiConfig.isConfigured) {
+      return;
+    }
+
     if (cachedPages.length < totalPages) {
       final targets = _buildPriorityQueue(
         totalPages: totalPages,
@@ -168,6 +267,7 @@ class OcrCubit extends Cubit<OcrState> {
             pdf: pdf,
             docHash: docHash,
             language: state.language,
+            engineMode: state.engineMode,
             targets: targets,
           ),
         );
@@ -177,7 +277,11 @@ class OcrCubit extends Cubit<OcrState> {
 
   Future<void> ensureProgressiveAround(int centerPage) async {
     _lastFocusPage = centerPage;
-    if (state.scope != OcrScope.progressive || state.isRunning) return;
+    if (state.isRunning) return;
+    if (state.engineMode == OcrEngineMode.openAiVision &&
+        !_latestAiConfig.isConfigured) {
+      return;
+    }
     final pdf = _boundPdf;
     final docHash = state.docHash;
     if (pdf == null || docHash == null || pdf.pages.isEmpty) return;
@@ -186,7 +290,7 @@ class OcrCubit extends Cubit<OcrState> {
       totalPages: pdf.pages.length,
       focusPage: centerPage,
       alreadyDone: state.pages.keys.toSet(),
-      progressiveOnly: true,
+      progressiveOnly: state.scope == OcrScope.progressive,
     );
     if (targets.isEmpty) return;
     final token = _jobToken;
@@ -196,9 +300,16 @@ class OcrCubit extends Cubit<OcrState> {
         pdf: pdf,
         docHash: docHash,
         language: state.language,
+        engineMode: state.engineMode,
         targets: targets,
       ),
     );
+  }
+
+  void stopOcrTask() {
+    if (!state.isRunning) return;
+    _jobToken++;
+    emit(state.copyWith(isRunning: false, currentRunningPage: null));
   }
 
   void unbindDocument() {
@@ -227,7 +338,7 @@ class OcrCubit extends Cubit<OcrState> {
     );
   }
 
-  Future<void> rerunOcrTask() async {
+  Future<void> rerunOcrTask({bool currentScopeOnly = false}) async {
     final source = state.activePdfSource;
     final docHash = state.docHash;
     final doc = _boundDocument;
@@ -237,10 +348,8 @@ class OcrCubit extends Cubit<OcrState> {
     }
 
     final token = ++_jobToken;
-    await _service.clearCacheForDoc(
-      docHash: docHash,
-      langTag: state.language.nativeTag,
-    );
+    final cacheTag = OcrService.cacheTagFor(state.language, state.engineMode);
+    await _service.clearCacheForDoc(docHash: docHash, cacheTag: cacheTag);
     if (isClosed || token != _jobToken) return;
 
     final pdf = _boundPdf ?? await assets.getPdfDocument(source, doc);
@@ -263,15 +372,100 @@ class OcrCubit extends Cubit<OcrState> {
       totalPages: pdf.pages.length,
       focusPage: _lastFocusPage,
       alreadyDone: const {},
-      progressiveOnly: false,
+      progressiveOnly: currentScopeOnly && state.scope == OcrScope.progressive,
     );
     await _runPageQueue(
       token: token,
       pdf: pdf,
       docHash: docHash,
       language: state.language,
+      engineMode: state.engineMode,
       targets: targets,
     );
+  }
+
+  Future<bool> recognizeSinglePageWithOpenAi(
+    int pageIndex,
+    AiTutorConfig aiConfig,
+  ) async {
+    _latestAiConfig = aiConfig;
+    final pdf = _boundPdf;
+    final docHash = state.docHash;
+    if (pdf == null ||
+        docHash == null ||
+        pageIndex < 0 ||
+        pageIndex >= pdf.pages.length) {
+      return false;
+    }
+    if (!aiConfig.isConfigured) {
+      emit(state.copyWith(statusError: '请先在 AI 设置中配置 OpenAI 兼容接口与 Key'));
+      return false;
+    }
+
+    final token = ++_jobToken;
+    emit(
+      state.copyWith(
+        isRunning: true,
+        currentRunningPage: pageIndex,
+        statusError: null,
+      ),
+    );
+    try {
+      final result = await _service.recognizePdfPage(
+        pdfPage: pdf.pages[pageIndex],
+        pageIndex: pageIndex,
+        language: state.language,
+        engineMode: OcrEngineMode.openAiVision,
+        aiConfig: aiConfig,
+      );
+      if (isClosed || token != _jobToken) return false;
+
+      final currentBucketTag = OcrService.cacheTagFor(
+        state.language,
+        state.engineMode,
+      );
+      await _service.saveCachedPage(
+        docHash: docHash,
+        cacheTag: OcrService.cacheTagFor(
+          state.language,
+          OcrEngineMode.openAiVision,
+        ),
+        result: result,
+      );
+      if (currentBucketTag !=
+          OcrService.cacheTagFor(state.language, OcrEngineMode.openAiVision)) {
+        await _service.saveCachedPage(
+          docHash: docHash,
+          cacheTag: currentBucketTag,
+          result: result,
+        );
+      }
+      if (isClosed || token != _jobToken) return false;
+
+      final updated = Map<int, OcrPageResult>.from(state.pages);
+      updated[pageIndex] = result;
+      emit(
+        state.copyWith(
+          pages: Map.unmodifiable(updated),
+          completedPages: updated.length,
+          isRunning: false,
+          currentRunningPage: null,
+          statusError: null,
+        ),
+      );
+      return true;
+    } catch (e) {
+      if (!isClosed && token == _jobToken) {
+        emit(
+          state.copyWith(
+            isRunning: false,
+            currentRunningPage: null,
+            statusError: e.toString(),
+          ),
+        );
+      }
+      return false;
+    }
   }
 
   List<int> _buildPriorityQueue({
@@ -286,7 +480,7 @@ class OcrCubit extends Cubit<OcrState> {
       ordered.add(clampedFocus);
     }
 
-    final windowRadius = progressiveOnly ? 2 : totalPages;
+    final windowRadius = progressiveOnly ? 1 : totalPages;
     for (var d = 1; d <= windowRadius; d++) {
       final next = clampedFocus + d;
       if (next < totalPages && !alreadyDone.contains(next)) {
@@ -312,12 +506,15 @@ class OcrCubit extends Cubit<OcrState> {
     required PdfDocument pdf,
     required String docHash,
     required OcrLanguage language,
+    required OcrEngineMode engineMode,
     required List<int> targets,
   }) async {
     if (targets.isEmpty) return;
     emit(state.copyWith(isRunning: true, statusError: null));
+    final cacheTag = OcrService.cacheTagFor(language, engineMode);
 
     for (final pageIndex in targets) {
+      await _waitUntilIdle(token);
       if (isClosed || token != _jobToken) return;
       if (pageIndex < 0 || pageIndex >= pdf.pages.length) continue;
 
@@ -327,12 +524,14 @@ class OcrCubit extends Cubit<OcrState> {
           pdfPage: pdf.pages[pageIndex],
           pageIndex: pageIndex,
           language: language,
+          engineMode: engineMode,
+          aiConfig: _latestAiConfig,
         );
         if (isClosed || token != _jobToken) return;
 
         await _service.saveCachedPage(
           docHash: docHash,
-          langTag: language.nativeTag,
+          cacheTag: cacheTag,
           result: result,
         );
         if (isClosed || token != _jobToken) return;
@@ -350,8 +549,11 @@ class OcrCubit extends Cubit<OcrState> {
       } catch (e) {
         if (isClosed || token != _jobToken) return;
         emit(state.copyWith(statusError: '第 ${pageIndex + 1} 页识别异常: $e'));
+        if (engineMode == OcrEngineMode.openAiVision) {
+          break;
+        }
       }
-      await Future<void>.delayed(const Duration(milliseconds: 12));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
     }
 
     if (!isClosed && token == _jobToken) {
@@ -419,10 +621,30 @@ class OcrCubit extends Cubit<OcrState> {
             pdf: _boundPdf!,
             docHash: state.docHash!,
             language: state.language,
+            engineMode: state.engineMode,
             targets: targets,
           ),
         );
       }
+    }
+  }
+
+  Future<void> setEngineMode(OcrEngineMode engineMode) async {
+    if (state.engineMode == engineMode) return;
+    emit(state.copyWith(engineMode: engineMode, selection: null, statusError: null));
+    await _saveString(_prefEngineMode, engineMode.name);
+
+    final source = state.activePdfSource;
+    final doc = _boundDocument;
+    final assets = _boundAssets;
+    if (source != null && doc != null && assets != null) {
+      await bindDocument(
+        pdfSource: source,
+        document: doc,
+        assets: assets,
+        initialFocusPage: _lastFocusPage,
+        forceSameSource: true,
+      );
     }
   }
 
@@ -435,8 +657,15 @@ class OcrCubit extends Cubit<OcrState> {
     emit(state.copyWith(selection: null));
   }
 
-  Future<String?> recognizeRegionPng(Uint8List pngBytes) =>
-      _service.recognizeRegionPng(pngBytes: pngBytes, language: state.language);
+  Future<String?> recognizeRegionPng(
+    Uint8List pngBytes, {
+    AiTutorConfig? aiConfig,
+  }) => _service.recognizeRegionPng(
+    pngBytes: pngBytes,
+    language: state.language,
+    engineMode: state.engineMode,
+    aiConfig: aiConfig ?? _latestAiConfig,
+  );
 
   Future<void> _saveBool(String key, bool value) async {
     try {

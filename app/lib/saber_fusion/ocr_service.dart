@@ -11,11 +11,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 
-import 'package:butterfly/saber_fusion/ocr_models.dart';
-import 'package:butterfly/saber_fusion/ocr_win_bridge.dart';
+import 'ai_tutor_service.dart';
+import 'ocr_models.dart';
+import 'ocr_win_bridge.dart';
+import 'study_state.dart';
 
 class OcrService {
   static const _androidChannel = MethodChannel('butterfly.saber_fusion/ocr');
+  static final _pageFilePattern = RegExp(r'^page_(\d+)\.json$');
 
   final Map<String, OcrPageResult> _memoryCache = {};
 
@@ -23,8 +26,28 @@ class OcrService {
       isWinNativeOcrSupported ||
       (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
 
-  String computeDocHash(Uint8List pdfBytes) =>
-      sha256.convert(pdfBytes).toString().substring(0, 16);
+  static String cacheTagFor(OcrLanguage language, OcrEngineMode engineMode) =>
+      engineMode == OcrEngineMode.openAiVision
+      ? '${language.nativeTag}_ai'
+      : language.nativeTag;
+
+  /// Computes a sub-millisecond deterministic 16-hex fingerprint using length
+  /// plus head/middle/tail slices so large 100MB+ PDFs never stall the UI isolate.
+  String computeDocHash(Uint8List pdfBytes) {
+    final len = pdfBytes.length;
+    if (len <= 256 * 1024) {
+      return sha256.convert(pdfBytes).toString().substring(0, 16);
+    }
+    const chunk = 64 * 1024;
+    final midStart = (len ~/ 2) - (chunk ~/ 2);
+    final combined = <int>[
+      ...utf8.encode('len:$len:'),
+      ...Uint8List.sublistView(pdfBytes, 0, chunk),
+      ...Uint8List.sublistView(pdfBytes, midStart, midStart + chunk),
+      ...Uint8List.sublistView(pdfBytes, len - chunk, len),
+    ];
+    return sha256.convert(combined).toString().substring(0, 16);
+  }
 
   Future<Uint8List?> readPdfBytes({
     required String source,
@@ -39,28 +62,56 @@ class OcrService {
     return assets.computeDataFromSource(source, document);
   }
 
-  String _memKey(String docHash, String langTag, int pageIndex) =>
-      '${docHash}_${langTag}_$pageIndex';
+  String _memKey(String docHash, String cacheTag, int pageIndex) =>
+      '${docHash}_${cacheTag}_$pageIndex';
 
-  Future<Directory?> _resolveCacheDir(String docHash, String langTag) async {
+  Future<Directory?> _resolveCacheDir(String docHash, String cacheTag) async {
     if (kIsWeb) return null;
     try {
       final base = await getButterflyDirectory();
-      return Directory('$base/OcrCache/${docHash}_$langTag');
+      return Directory('$base/OcrCache/${docHash}_$cacheTag');
     } catch (_) {
       return null;
     }
   }
 
+  Future<Set<int>> listCachedPageIndices({
+    required String docHash,
+    required String cacheTag,
+  }) async {
+    final found = <int>{};
+    final memPrefix = '${docHash}_${cacheTag}_';
+    for (final k in _memoryCache.keys) {
+      if (k.startsWith(memPrefix)) {
+        final pageIdx = int.tryParse(k.substring(memPrefix.length));
+        if (pageIdx != null) found.add(pageIdx);
+      }
+    }
+    final dir = await _resolveCacheDir(docHash, cacheTag);
+    if (dir == null) return found;
+    try {
+      if (!await dir.exists()) return found;
+      await for (final entity in dir.list(followLinks: false)) {
+        final name = entity.uri.pathSegments.lastOrNull ?? '';
+        final match = _pageFilePattern.firstMatch(name);
+        if (match != null) {
+          final idx = int.tryParse(match.group(1)!);
+          if (idx != null) found.add(idx);
+        }
+      }
+    } catch (_) {}
+    return found;
+  }
+
   Future<OcrPageResult?> loadCachedPage({
     required String docHash,
-    required String langTag,
+    required String cacheTag,
     required int pageIndex,
   }) async {
-    final mem = _memoryCache[_memKey(docHash, langTag, pageIndex)];
+    final mem = _memoryCache[_memKey(docHash, cacheTag, pageIndex)];
     if (mem != null) return mem;
 
-    final dir = await _resolveCacheDir(docHash, langTag);
+    final dir = await _resolveCacheDir(docHash, cacheTag);
     if (dir == null) return null;
     final file = File('${dir.path}${Platform.pathSeparator}page_$pageIndex.json');
     try {
@@ -72,7 +123,7 @@ class OcrService {
           decoded.map((k, v) => MapEntry(k.toString(), v)),
           fromCache: true,
         );
-        _memoryCache[_memKey(docHash, langTag, pageIndex)] = parsed;
+        _memoryCache[_memKey(docHash, cacheTag, pageIndex)] = parsed;
         return parsed;
       }
     } catch (_) {
@@ -83,11 +134,11 @@ class OcrService {
 
   Future<void> saveCachedPage({
     required String docHash,
-    required String langTag,
+    required String cacheTag,
     required OcrPageResult result,
   }) async {
-    _memoryCache[_memKey(docHash, langTag, result.pageIndex)] = result;
-    final dir = await _resolveCacheDir(docHash, langTag);
+    _memoryCache[_memKey(docHash, cacheTag, result.pageIndex)] = result;
+    final dir = await _resolveCacheDir(docHash, cacheTag);
     if (dir == null) return;
     try {
       if (!await dir.exists()) {
@@ -104,11 +155,11 @@ class OcrService {
 
   Future<void> clearCacheForDoc({
     required String docHash,
-    required String langTag,
+    required String cacheTag,
   }) async {
-    final prefix = '${docHash}_${langTag}_';
+    final prefix = '${docHash}_${cacheTag}_';
     _memoryCache.removeWhere((key, _) => key.startsWith(prefix));
-    final dir = await _resolveCacheDir(docHash, langTag);
+    final dir = await _resolveCacheDir(docHash, cacheTag);
     if (dir == null) return;
     try {
       if (await dir.exists()) {
@@ -121,29 +172,66 @@ class OcrService {
     required PdfPage pdfPage,
     required int pageIndex,
     required OcrLanguage language,
+    OcrEngineMode engineMode = OcrEngineMode.localNative,
+    AiTutorConfig? aiConfig,
   }) async {
     List<OcrTextLine> lines = const [];
     final maxDim = math.max(pdfPage.width, pdfPage.height);
-    final scale = (1800.0 / math.max(1.0, maxDim)).clamp(1.6, 2.8);
+    final targetMax = engineMode == OcrEngineMode.openAiVision ? 1280.0 : 1440.0;
+    final scale = (targetMax / math.max(1.0, maxDim)).clamp(1.3, 2.2);
     final pw = math.max(1, (pdfPage.width * scale).round());
     final ph = math.max(1, (pdfPage.height * scale).round());
 
-    if (isWinNativeOcrSupported) {
+    if (engineMode == OcrEngineMode.openAiVision) {
+      if (aiConfig == null || !aiConfig.isConfigured) {
+        throw const AiTutorException('使用 OpenAI 视觉 OCR 前，请先在 AI 设置中配置接口与 Key');
+      }
+      final pngBytes = await _renderPagePng(pdfPage, pw, ph);
+      if (pngBytes != null) {
+        lines = await AiTutorService.ocrImageViaOpenAi(
+          config: aiConfig,
+          pngBytes: pngBytes,
+          language: language,
+        );
+      }
+    } else if (isWinNativeOcrSupported) {
       lines = await _recognizePageViaWindows(pdfPage, pw, ph, language.nativeTag);
     } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       lines = await _recognizePageViaAndroid(pdfPage, pw, ph, language.nativeTag);
     }
 
-    if (lines.isEmpty) {
+    if (lines.isEmpty && engineMode == OcrEngineMode.localNative) {
       lines = await _extractFallbackPdfTextLines(pdfPage);
     }
 
     return OcrPageResult(
       pageIndex: pageIndex,
-      langTag: language.nativeTag,
+      langTag: cacheTagFor(language, engineMode),
       lines: List.unmodifiable(lines),
       fromCache: false,
     );
+  }
+
+  Future<Uint8List?> _renderPagePng(PdfPage pdfPage, int width, int height) async {
+    final raster = await pdfPage.render(
+      width: width,
+      height: height,
+      fullWidth: width.toDouble(),
+      fullHeight: height.toDouble(),
+    );
+    if (raster == null) return null;
+    ui.Image? uiImage;
+    try {
+      uiImage = await raster.createImage();
+    } finally {
+      raster.dispose();
+    }
+    try {
+      final bytes = await uiImage.toByteData(format: ui.ImageByteFormat.png);
+      return bytes?.buffer.asUint8List();
+    } finally {
+      uiImage.dispose();
+    }
   }
 
   Future<List<OcrTextLine>> _recognizePageViaWindows(
@@ -186,26 +274,9 @@ class OcrService {
     int height,
     String langTag,
   ) async {
-    final raster = await pdfPage.render(
-      width: width,
-      height: height,
-      fullWidth: width.toDouble(),
-      fullHeight: height.toDouble(),
-    );
-    if (raster == null) return const [];
-    ui.Image? uiImage;
-    try {
-      uiImage = await raster.createImage();
-    } finally {
-      raster.dispose();
-    }
-    try {
-      final bytes = await uiImage.toByteData(format: ui.ImageByteFormat.png);
-      if (bytes == null) return const [];
-      return await _invokeAndroidPng(bytes.buffer.asUint8List(), langTag);
-    } finally {
-      uiImage.dispose();
-    }
+    final pngBytes = await _renderPagePng(pdfPage, width, height);
+    if (pngBytes == null) return const [];
+    return _invokeAndroidPng(pngBytes, langTag);
   }
 
   Future<List<OcrTextLine>> _invokeAndroidPng(
@@ -273,7 +344,20 @@ class OcrService {
   Future<String?> recognizeRegionPng({
     required Uint8List pngBytes,
     required OcrLanguage language,
+    OcrEngineMode engineMode = OcrEngineMode.localNative,
+    AiTutorConfig? aiConfig,
   }) async {
+    if (engineMode == OcrEngineMode.openAiVision &&
+        aiConfig != null &&
+        aiConfig.isConfigured) {
+      final lines = await AiTutorService.ocrImageViaOpenAi(
+        config: aiConfig,
+        pngBytes: pngBytes,
+        language: language,
+      );
+      final joined = lines.map((l) => l.text).join('\n').trim();
+      return joined.isEmpty ? null : joined;
+    }
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       final lines = await _invokeAndroidPng(pngBytes, language.nativeTag);
       final joined = lines.map((l) => l.text).join('\n').trim();

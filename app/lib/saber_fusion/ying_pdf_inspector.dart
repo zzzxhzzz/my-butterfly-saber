@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import 'ai_tutor_tab.dart';
 import 'ocr_cubit.dart';
 import 'ocr_models.dart';
 import 'pdf_canvas_reflow_service.dart';
@@ -795,6 +796,102 @@ class _YingPdfInspectorPanelState extends State<YingPdfInspectorPanel> {
                                     Row(
                                       children: [
                                         Text(
+                                          '识别引擎',
+                                          style: TextStyle(
+                                            color: palette.inkSecondary,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        Container(
+                                          height: 30,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: palette.controlSurface,
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
+                                            border: Border.all(
+                                              color: palette.borderSubtle,
+                                            ),
+                                          ),
+                                          child: DropdownButton<OcrEngineMode>(
+                                            value: ocrState.engineMode,
+                                            isDense: true,
+                                            underline: const SizedBox.shrink(),
+                                            style: TextStyle(
+                                              color: palette.inkPrimary,
+                                              fontSize: 11,
+                                            ),
+                                            items: [
+                                              for (final em
+                                                  in OcrEngineMode.values)
+                                                DropdownMenuItem<OcrEngineMode>(
+                                                  value: em,
+                                                  child: Text(em.label),
+                                                ),
+                                            ],
+                                            onChanged: (val) {
+                                              if (val != null) {
+                                                ocrCubit.syncAiConfig(
+                                                  studyState.aiConfig,
+                                                );
+                                                unawaited(
+                                                  ocrCubit.setEngineMode(val),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Tooltip(
+                                          message: '配置 OpenAI 兼容接口',
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
+                                            onTap: () => unawaited(
+                                              showOpenAiApiSettingsDialog(
+                                                context,
+                                              ),
+                                            ),
+                                            child: Container(
+                                              width: 30,
+                                              height: 30,
+                                              decoration: BoxDecoration(
+                                                color: studyState
+                                                        .aiConfig
+                                                        .isConfigured
+                                                    ? palette.accentSoft
+                                                    : palette.controlSurface,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                  color: palette.borderSubtle,
+                                                ),
+                                              ),
+                                              child: Center(
+                                                child: PhosphorIcon(
+                                                  PhosphorIconsLight.gear,
+                                                  size: 14,
+                                                  color: studyState
+                                                          .aiConfig
+                                                          .isConfigured
+                                                      ? palette.accentBerryDark
+                                                      : palette.inkSecondary,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        Text(
                                           '识别范围',
                                           style: TextStyle(
                                             color: palette.inkSecondary,
@@ -826,29 +923,153 @@ class _YingPdfInspectorPanelState extends State<YingPdfInspectorPanel> {
                                       ],
                                     ),
                                     const SizedBox(height: 8),
-                                    OutlinedButton(
-                                      style: OutlinedButton.styleFrom(
-                                        backgroundColor: palette.controlSurface,
-                                        foregroundColor: palette.inkPrimary,
-                                        side: BorderSide(
-                                          color: palette.borderStrong,
+                                    if (loaded != null &&
+                                        summary != null &&
+                                        ocrState.totalPages == 0)
+                                      FilledButton(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: palette.accentBerry,
                                         ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                      ),
-                                      onPressed:
-                                          ocrState.isRunning ||
-                                              ocrState.totalPages == 0
-                                          ? null
-                                          : () => unawaited(
-                                              ocrCubit.rerunOcrTask(),
+                                        onPressed: () {
+                                          ocrCubit.syncAiConfig(
+                                            studyState.aiConfig,
+                                          );
+                                          unawaited(
+                                            ocrCubit.bindDocument(
+                                              pdfSource: summary.source,
+                                              document: loaded.data,
+                                              assets: loaded.assetService,
+                                              initialFocusPage: pageIdx,
+                                              forceSameSource: true,
                                             ),
-                                      child: const Text(
-                                        '重新执行 OCR 识别任务',
-                                        style: TextStyle(fontSize: 12),
+                                          );
+                                        },
+                                        child: const Text(
+                                          '立即绑定并启动 OCR 识别',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                      )
+                                    else
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: OutlinedButton(
+                                                  style: OutlinedButton.styleFrom(
+                                                    backgroundColor:
+                                                        palette.controlSurface,
+                                                    foregroundColor:
+                                                        palette.inkPrimary,
+                                                    side: BorderSide(
+                                                      color:
+                                                          palette.borderStrong,
+                                                    ),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  onPressed:
+                                                      ocrState.isRunning ||
+                                                          ocrState.totalPages ==
+                                                              0
+                                                      ? null
+                                                      : () => unawaited(
+                                                          ocrCubit
+                                                              .rerunOcrTask(),
+                                                        ),
+                                                  child: const Text(
+                                                    '重新执行 OCR',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              if (ocrState.isRunning) ...[
+                                                const SizedBox(width: 6),
+                                                OutlinedButton(
+                                                  style: OutlinedButton.styleFrom(
+                                                    backgroundColor:
+                                                        palette.accentSoft,
+                                                    foregroundColor:
+                                                        palette.accentBerryDark,
+                                                    side: BorderSide(
+                                                      color:
+                                                          palette.accentBerry,
+                                                    ),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            8,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  onPressed:
+                                                      ocrCubit.stopOcrTask,
+                                                  child: const Text(
+                                                    '停止',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          OutlinedButton.icon(
+                                            style: OutlinedButton.styleFrom(
+                                              backgroundColor:
+                                                  palette.controlSurface,
+                                              foregroundColor:
+                                                  palette.accentBerryDark,
+                                              side: BorderSide(
+                                                color: palette.borderSubtle,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                            onPressed: (ocrState.totalPages == 0 ||
+                                                    ocrState.isRunning)
+                                                ? null
+                                                : () async {
+                                                    if (!studyState
+                                                        .aiConfig
+                                                        .isConfigured) {
+                                                      await showOpenAiApiSettingsDialog(
+                                                        context,
+                                                      );
+                                                      return;
+                                                    }
+                                                    await ocrCubit
+                                                        .recognizeSinglePageWithOpenAi(
+                                                          pageIdx,
+                                                          studyState.aiConfig,
+                                                        );
+                                                  },
+                                            icon: const PhosphorIcon(
+                                              PhosphorIconsLight.sparkle,
+                                              size: 14,
+                                            ),
+                                            label: Text(
+                                              studyState.aiConfig.isConfigured
+                                                  ? 'AI 视觉高精度识别第 ${pageIdx + 1} 页'
+                                                  : '配置 OpenAI 视觉 API 精识本页',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ),
                                     const SizedBox(height: 8),
                                     Container(
                                       padding: const EdgeInsets.all(10),
@@ -910,6 +1131,9 @@ class _YingPdfInspectorPanelState extends State<YingPdfInspectorPanel> {
                                                 ? '全部完成，缓存命中 ${ocrState.cacheHitPages} 页'
                                                 : ocrState.totalPages == 0
                                                 ? '打开含 PDF 文档后自动开始离线识别'
+                                                : ocrState.scope ==
+                                                      OcrScope.progressive
+                                                ? '渐进式就绪 ${ocrState.completedPages} / ${ocrState.totalPages} 页 · 翻页时自动识别邻近页'
                                                 : '已就绪 ${ocrState.completedPages} / ${ocrState.totalPages} 页（缓存命中 ${ocrState.cacheHitPages} 页）',
                                             style: TextStyle(
                                               color: ocrState.statusError != null

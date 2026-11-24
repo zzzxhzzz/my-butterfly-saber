@@ -51,6 +51,77 @@ class PdfSearchHit {
 class PdfStudyService {
   const PdfStudyService._();
 
+  static NoteData? _cachedData;
+  static DocumentPage? _cachedPage;
+  static String? _cachedPageName;
+  static String? _cachedDocName;
+  static List<PdfSourceSummary>? _cachedSummaries;
+  static final _hexNamePattern = RegExp(r'^[0-9a-fA-F]{12,}(?:\.[A-Za-z0-9]+)?$');
+
+  static int findNearestPlacementIndex(
+    List<PdfPagePlacement> placements,
+    Offset worldCenter,
+  ) {
+    if (placements.isEmpty) return 0;
+    if (placements.length <= 12) {
+      var bestIdx = 0;
+      var bestDist = double.infinity;
+      for (var i = 0; i < placements.length; i++) {
+        final b = placements[i].bounds;
+        if (b.contains(worldCenter)) return i;
+        final d = (b.center - worldCenter).distanceSquared;
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
+    // Fast path: check monotonic Y ordering (both single-column and 2-page spread rows).
+    final firstTop = placements.first.bounds.top;
+    final lastTop = placements.last.bounds.top;
+    if (lastTop >= firstTop) {
+      var lo = 0;
+      var hi = placements.length - 1;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (placements[mid].bounds.bottom < worldCenter.dy) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      final start = max(0, lo - 4);
+      final end = min(placements.length - 1, lo + 5);
+      var bestIdx = start;
+      var bestDist = double.infinity;
+      for (var i = start; i <= end; i++) {
+        final b = placements[i].bounds;
+        if (b.contains(worldCenter)) return i;
+        final d = (b.center - worldCenter).distanceSquared;
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
+    var bestIdx = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < placements.length; i++) {
+      final b = placements[i].bounds;
+      if (b.contains(worldCenter)) return i;
+      final d = (b.center - worldCenter).distanceSquared;
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
   static Rect computePdfBounds(PdfElement element) {
     final constraints = element.constraints;
     var width = element.width;
@@ -81,6 +152,15 @@ class PdfStudyService {
   }
 
   static List<PdfSourceSummary> indexDocumentPdfs(DocumentLoadSuccess state) {
+    final docName = state.metadata.name;
+    if (identical(state.data, _cachedData) &&
+        identical(state.page, _cachedPage) &&
+        state.pageName == _cachedPageName &&
+        docName == _cachedDocName &&
+        _cachedSummaries != null) {
+      return _cachedSummaries!;
+    }
+
     final grouped = <String, List<PdfPagePlacement>>{};
     final pages = state.data.getPages(true);
     for (final realPageName in pages) {
@@ -114,25 +194,34 @@ class PdfStudyService {
 
     final summaries = <PdfSourceSummary>[];
     var index = 1;
+    final cleanDocTitle = docName.trim();
     for (final entry in grouped.entries) {
       final placements = entry.value.toList()
         ..sort((a, b) => a.pdfPageIndex.compareTo(b.pdfPageIndex));
       final rawName = entry.key.split('/').last;
-      final label = rawName.isEmpty
-          ? 'PDF #$index'
-          : (rawName.length > 26
-              ? 'PDF #$index (${rawName.substring(0, 14)}...)'
-              : rawName);
+      final label = (rawName.isEmpty || _hexNamePattern.hasMatch(rawName))
+          ? (cleanDocTitle.isNotEmpty
+                ? (grouped.length > 1 ? '$cleanDocTitle #$index' : cleanDocTitle)
+                : 'PDF #$index')
+          : (rawName.length > 28
+                ? '${rawName.substring(0, 22)}...'
+                : rawName);
       summaries.add(
         PdfSourceSummary(
           source: entry.key,
           displayName: label,
-          placements: placements,
+          placements: List.unmodifiable(placements),
         ),
       );
       index++;
     }
-    return summaries;
+    final frozen = List<PdfSourceSummary>.unmodifiable(summaries);
+    _cachedData = state.data;
+    _cachedPage = state.page;
+    _cachedPageName = state.pageName;
+    _cachedDocName = docName;
+    _cachedSummaries = frozen;
+    return frozen;
   }
 
   static Future<List<PdfOutlineNode>> loadOutline(
