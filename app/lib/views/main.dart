@@ -20,7 +20,6 @@ import 'package:butterfly/saber_fusion/lan_sync_service.dart';
 import 'package:butterfly/saber_fusion/multi_pdf_window_layer.dart';
 import 'package:butterfly/saber_fusion/ocr_canvas_overlay.dart';
 import 'package:butterfly/saber_fusion/ocr_cubit.dart';
-import 'package:butterfly/saber_fusion/ocr_models.dart';
 import 'package:butterfly/saber_fusion/pdf_book_overlay.dart';
 import 'package:butterfly/saber_fusion/pdf_canvas_reflow_service.dart';
 import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
