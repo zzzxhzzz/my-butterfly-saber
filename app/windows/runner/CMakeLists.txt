@@ -48,7 +48,7 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 add_library(win_ocr_bridge SHARED
   "win_ocr_bridge.cpp"
 )
-target_compile_features(win_ocr_bridge PUBLIC cxx_std_17)
+target_compile_features(win_ocr_bridge PRIVATE cxx_std_20)
 target_compile_options(win_ocr_bridge PRIVATE /EHsc /bigobj /utf-8)
-target_compile_definitions(win_ocr_bridge PRIVATE "NOMINMAX")
+target_compile_definitions(win_ocr_bridge PRIVATE "NOMINMAX" "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
 target_link_libraries(win_ocr_bridge PRIVATE "windowsapp.lib")

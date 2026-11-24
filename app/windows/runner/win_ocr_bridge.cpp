@@ -1,6 +1,9 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#ifndef _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+#define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+#endif
 
 #include <algorithm>
 #include <cstdint>
