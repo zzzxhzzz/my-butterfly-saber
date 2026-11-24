@@ -61,3 +61,9 @@ git push -u origin saber-fusion
    - **`saber-fusion-windows-x64`**：内含 `butterfly-saber-fusion-windows-x64.zip`，解压后直接运行里面的 `butterfly.exe`（或 `start.bat` 便携模式）即可使用。
 
 > 提示：你也可以在 GitHub Actions 页面随时点击 **Run workflow** 手动触发重新打包。
+
+
+9. **YingPDF 暖玫瑰纸质界面风格 + 双端离线 OCR 文字层与白底重排**
+   - **默认启用 YingPDF 阅读界面风格**（支持右上角问号菜单与classic菜单互切）：暖纸浅灰底色配莓果红主题点缀，顶部集成「打开 / 缩放与适应 / 文字层 T / 截取 R / 搜索 F / 阅读与画布模式切换 / 快捷键与总览 / 局域网同步 / 多 PDF 悬浮窗」，右侧可折叠 **308px 检查器**（文档信息、上/右/下/左 页边距裁剪 + 实时缩略预览 + 无缝文档流、OCR 文字层开关/透明度/语言/重跑与进度、裁剪后 2× 144 DPI PNG 单页与批量导出）。
+   - **Windows & Android 原生全离线 OCR 引擎与持久化缓存**：Windows 端通过 C++/WinRT 调用系统内置 Windows.Media.Ocr.OcrEngine（win_ocr_bridge.dll），Android 端内置离线版 Google ML Kit 中文/英文/日文识字库，结果自动按 (文档 SHA-256, 语言) 持久缓存于 OcrCache/，支持「整个文档 / 渐进式」范围与「重新执行 OCR 识别任务」。
+   - **随手划词选中 + 白底清晰文字层 + 区域截取 R**：按 T 可随时切换可调不透明度的纯白清晰排版文字层；在「阅读」模式下鼠标悬停文字自动变为工字光标，可跨行拖拽划词选中（不干扰滚轮、双指缩放与右键/中键平移），弹出悬浮菜单支持一键「复制 (Ctrl+C)」、「添加到画布 (R)」或「问 AI 助教」。区域截图支持直接贴入画布、区域 OCR 提取文字或发送 AI 解析；搜索 (F) 同时检索引擎内嵌文字与 OCR 识别缓存。

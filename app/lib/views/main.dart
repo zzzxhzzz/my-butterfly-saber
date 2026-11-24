@@ -18,11 +18,18 @@ import 'package:butterfly/saber_fusion/lan_sync_cubit.dart';
 import 'package:butterfly/saber_fusion/lan_sync_models.dart';
 import 'package:butterfly/saber_fusion/lan_sync_service.dart';
 import 'package:butterfly/saber_fusion/multi_pdf_window_layer.dart';
+import 'package:butterfly/saber_fusion/ocr_canvas_overlay.dart';
+import 'package:butterfly/saber_fusion/ocr_cubit.dart';
+import 'package:butterfly/saber_fusion/ocr_models.dart';
 import 'package:butterfly/saber_fusion/pdf_book_overlay.dart';
+import 'package:butterfly/saber_fusion/pdf_canvas_reflow_service.dart';
 import 'package:butterfly/saber_fusion/pdf_reading_models.dart';
 import 'package:butterfly/saber_fusion/pdf_study_panel.dart';
+import 'package:butterfly/saber_fusion/pdf_study_service.dart';
 import 'package:butterfly/saber_fusion/study_state.dart';
 import 'package:butterfly/saber_fusion/study_toolbar.dart';
+import 'package:butterfly/saber_fusion/ying_pdf_header.dart';
+import 'package:butterfly/saber_fusion/ying_pdf_inspector.dart';
 import 'package:butterfly_api/butterfly_api.dart';
 import 'package:butterfly/renderers/renderer.dart';
 import 'package:butterfly/services/document_state.dart';
@@ -860,6 +867,104 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
     }
   }
 
+  void _bindOcrForState(BuildContext context, DocumentState docState) {
+    final ocrCubit = maybeOcrCubit(context);
+    if (ocrCubit == null) return;
+    if (docState is! DocumentLoadSuccess) return;
+    final primary = PdfStudyService.indexDocumentPdfs(docState).firstOrNull;
+    if (primary == null) {
+      ocrCubit.unbindDocument();
+      return;
+    }
+    final focusPage = PdfCanvasReflowService.detectCurrentPageIndex(
+      context,
+      primary,
+    );
+    unawaited(
+      ocrCubit.bindDocument(
+        pdfSource: primary.source,
+        document: docState.data,
+        assets: docState.assetService,
+        initialFocusPage: focusPage,
+      ),
+    );
+  }
+
+  KeyEventResult _handleYingPdfKeyEvent(BuildContext context, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (FocusManager.instance.primaryFocus?.context?.widget is EditableText) {
+      return KeyEventResult.ignored;
+    }
+    final studyCubit = maybeStudyModeCubit(context);
+    final ocrCubit = maybeOcrCubit(context);
+    final kb = HardwareKeyboard.instance;
+    final hasModifier =
+        kb.isControlPressed || kb.isAltPressed || kb.isMetaPressed;
+
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      var handled = false;
+      if (ocrCubit?.state.selection != null) {
+        ocrCubit!.clearSelection();
+        handled = true;
+      }
+      if (studyCubit?.state.aiSnippingMode == true) {
+        studyCubit!.setAiSnippingMode(false);
+        handled = true;
+      }
+      return handled ? KeyEventResult.handled : KeyEventResult.ignored;
+    }
+
+    if ((kb.isControlPressed || kb.isMetaPressed) &&
+        !kb.isAltPressed &&
+        event.logicalKey == LogicalKeyboardKey.keyC) {
+      final selection = ocrCubit?.state.selection;
+      if (selection != null && selection.isNotEmpty) {
+        unawaited(Clipboard.setData(ClipboardData(text: selection.text)));
+        ocrCubit!.clearSelection();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已复制 ${selection.text.length} 个字符'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        return KeyEventResult.handled;
+      }
+    }
+
+    if (studyCubit?.state.yingPdfStyle == true && !hasModifier) {
+      if (event.logicalKey == LogicalKeyboardKey.keyT) {
+        ocrCubit?.toggleWhiteBgLayer();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyR) {
+        final selection = ocrCubit?.state.selection;
+        if (selection != null && selection.isNotEmpty) {
+          var unionRect = selection.worldRects.first;
+          for (var i = 1; i < selection.worldRects.length; i++) {
+            unionRect = unionRect.expandToInclude(selection.worldRects[i]);
+          }
+          unawaited(
+            insertTextExcerptToCanvas(
+              context,
+              text: selection.text,
+              anchorWorldRect: unionRect,
+            ),
+          );
+          ocrCubit!.clearSelection();
+        } else {
+          studyCubit!.setAiSnippingMode(!studyCubit.state.aiSnippingMode);
+        }
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyF) {
+        studyCubit!.setInspectorOpen(true);
+        studyCubit.openStudyPanel(StudyPanelTab.search);
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -887,6 +992,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
     final studyCubit =
         maybeStudyModeCubit(context) ??
         (_fallbackStudyCubit ??= StudyModeCubit());
+    final ocrCubit = maybeOcrCubit(context);
     return MultiBlocProvider(
       providers: [
         BlocProvider.value(value: runtime.bloc),
@@ -899,6 +1005,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
         BlocProvider.value(value: runtime.editorController.saveCubit),
         BlocProvider.value(value: runtime.editorController.viewCubit),
         BlocProvider.value(value: studyCubit),
+        if (ocrCubit != null) BlocProvider.value(value: ocrCubit),
       ],
       child: BlocBuilder<DocumentBloc, DocumentState>(
         buildWhen: (previous, current) =>
@@ -958,10 +1065,17 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                     ),
                                   ),
                                   builder: (context, settings) {
-                                    final studyToolbarMode = context.select<
+                                    final studyUi = context.select<
                                       StudyModeCubit,
-                                      bool
-                                    >((c) => c.state.studyToolbarMode);
+                                      ({bool toolbar, bool yingStyle})
+                                    >(
+                                      (c) => (
+                                        toolbar: c.state.studyToolbarMode,
+                                        yingStyle: c.state.yingPdfStyle,
+                                      ),
+                                    );
+                                    final studyToolbarMode = studyUi.toolbar;
+                                    final yingPdfStyle = studyUi.yingStyle;
                                     final actions = _buildActions(context);
                                     final floatingEditor =
                                         settings.floatingEditor &&
@@ -993,15 +1107,24 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                           autofocus: true,
                                           skipTraversal: true,
                                           onFocusChange: (_) => false,
+                                          onKeyEvent: (_, event) =>
+                                              _handleYingPdfKeyEvent(
+                                                context,
+                                                event,
+                                              ),
                                           child: Scaffold(
                                             extendBodyBehindAppBar:
-                                                floatingEditor,
+                                                floatingEditor && !yingPdfStyle,
                                             appBar:
                                                 state is DocumentPresentationState ||
                                                     fullScreen ||
                                                     saveState.fullScreen ||
                                                     hideUi != .visible
                                                 ? null
+                                                : yingPdfStyle
+                                                ? YingPdfHeaderBar(
+                                                    inView: saveState.inView,
+                                                  )
                                                 : PadAppBar(
                                                     viewportKey: _viewportKey,
                                                     size: settings.toolbarSize,
@@ -1019,7 +1142,7 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                                         !studyToolbarMode,
                                                     floating: floatingEditor,
                                                   ),
-                                            body: floatingEditor
+                                            body: (floatingEditor && !yingPdfStyle)
                                                 ? MenuTheme(
                                                     data:
                                                         kFloatingEditorMenuTheme,
@@ -1057,6 +1180,63 @@ class _ProjectPageState extends State<ProjectPage> with WidgetsBindingObserver {
                                                 context,
                                               ),
                                         ),
+                                        if (ocrCubit != null)
+                                          BlocListener<
+                                            DocumentBloc,
+                                            DocumentState
+                                          >(
+                                            listenWhen: (prev, curr) =>
+                                                prev.runtimeType !=
+                                                    curr.runtimeType ||
+                                                (prev is DocumentLoadSuccess &&
+                                                    curr is DocumentLoadSuccess &&
+                                                    (prev.pageName !=
+                                                            curr.pageName ||
+                                                        prev
+                                                                .page
+                                                                .content
+                                                                .length !=
+                                                            curr
+                                                                .page
+                                                                .content
+                                                                .length)),
+                                            listener: _bindOcrForState,
+                                          ),
+                                        if (ocrCubit != null)
+                                          BlocListener<
+                                            TransformCubit,
+                                            CameraTransform
+                                          >(
+                                            bloc: runtime.transformCubit,
+                                            listenWhen: (prev, curr) =>
+                                                prev.position != curr.position,
+                                            listener: (context, _) {
+                                              if (ocrCubit.state.scope !=
+                                                  OcrScope.progressive) {
+                                                return;
+                                              }
+                                              final docState = runtime.bloc.state;
+                                              if (docState
+                                                  is! DocumentLoadSuccess) {
+                                                return;
+                                              }
+                                              final primary = PdfStudyService
+                                                  .indexDocumentPdfs(docState)
+                                                  .firstOrNull;
+                                              if (primary == null) return;
+                                              final focusIdx =
+                                                  PdfCanvasReflowService
+                                                      .detectCurrentPageIndex(
+                                                        context,
+                                                        primary,
+                                                      );
+                                              unawaited(
+                                                ocrCubit.ensureProgressiveAround(
+                                                  focusIdx,
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         BlocListener<
                                           DocumentSaveCubit,
                                           DocumentSaveState
@@ -1292,7 +1472,15 @@ class _MainBody extends StatelessWidget {
                                           previous.studyPanelOpen !=
                                               current.studyPanelOpen ||
                                           previous.aiSnippingMode !=
-                                              current.aiSnippingMode,
+                                              current.aiSnippingMode ||
+                                          previous.yingPdfStyle !=
+                                              current.yingPdfStyle ||
+                                          previous.workspaceMode !=
+                                              current.workspaceMode ||
+                                          previous.inspectorOpen !=
+                                              current.inspectorOpen ||
+                                          previous.canvasExcerptCount !=
+                                              current.canvasExcerptCount,
                                       builder: (context, studyState) {
                                         return LayoutBuilder(
                                           builder: (context, constraints) =>
@@ -1358,20 +1546,37 @@ class _MainBody extends StatelessWidget {
     final navigatorEnabled = context.select<EditorViewCubit, bool>(
       (cubit) => cubit.state.navigatorEnabled,
     );
+    final isYing = studyState.yingPdfStyle;
     final isStudyToolbar =
-        studyState.studyToolbarMode && state is DocumentLoadSuccess;
+        state is DocumentLoadSuccess &&
+        (isYing
+            ? studyState.workspaceMode == StudyWorkspaceMode.canvas
+            : studyState.studyToolbarMode);
     final showNavigator =
+        !isYing &&
         !isStudyToolbar &&
         isLarge &&
         ((navigatorRailEnabled && !fullScreen) ||
             (navigatorEnabled && (fullScreen || !navigatorRailEnabled))) &&
         state is DocumentLoadSuccess &&
         inputState.hideUi == .visible;
+    final showDockedInspector =
+        isYing &&
+        studyState.inspectorOpen &&
+        state is DocumentLoadSuccess &&
+        isLarge;
+    final showOverlayInspector =
+        isYing &&
+        studyState.inspectorOpen &&
+        state is DocumentLoadSuccess &&
+        !isLarge;
     final showDockedStudyPanel =
+        !isYing &&
         studyState.studyPanelOpen &&
         state is DocumentLoadSuccess &&
         isLarge;
     final showOverlayStudyPanel =
+        !isYing &&
         studyState.studyPanelOpen &&
         state is DocumentLoadSuccess &&
         !isLarge;
@@ -1386,6 +1591,8 @@ class _MainBody extends StatelessWidget {
         if (state is DocumentLoadSuccess &&
             studyState.pdfCrop.layoutMode != PdfViewLayoutMode.singlePage)
           const Positioned.fill(child: SplitPageBookReaderOverlay()),
+        if (isYing && state is DocumentLoadSuccess)
+          const Positioned.fill(child: OcrReadingInteractionOverlay()),
         _buildSelectionListener(context, toolState),
         SafeArea(
           child: Row(
@@ -1393,7 +1600,8 @@ class _MainBody extends StatelessWidget {
             children: [
               if (showNavigator && settings.navigatorPosition == .left)
                 NavigatorView(floating: floatingEditor),
-              if (!isStudyToolbar &&
+              if (!isYing &&
+                  !isStudyToolbar &&
                   settings.toolbarPosition == .left &&
                   !isMobile &&
                   inputState.hideUi == .visible)
@@ -1407,17 +1615,27 @@ class _MainBody extends StatelessWidget {
                 spacedToolbar,
                 state is DocumentLoadSuccess,
                 isStudyToolbar,
+                isYing: isYing,
               ),
-              if (!isStudyToolbar &&
+              if (!isYing &&
+                  !isStudyToolbar &&
                   settings.toolbarPosition == .right &&
                   inputState.hideUi == .visible)
                 spacedToolbar,
+              if (showDockedInspector) const YingPdfInspectorPanel(),
               if (showDockedStudyPanel) const PdfStudyPanel(),
               if (showNavigator && settings.navigatorPosition == .right)
                 NavigatorView(floating: floatingEditor),
             ],
           ),
         ),
+        if (showOverlayInspector)
+          const SafeArea(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: YingPdfInspectorPanel(),
+            ),
+          ),
         if (showOverlayStudyPanel)
           const SafeArea(
             child: Align(
@@ -1458,27 +1676,30 @@ class _MainBody extends StatelessWidget {
     bool isMobile,
     Widget toolbar,
     bool documentLoaded,
-    bool isStudyToolbar,
-  ) {
+    bool isStudyToolbar, {
+    bool isYing = false,
+  }) {
     final pos = settings.toolbarPosition;
     final optPos = settings.optionsPanelPosition;
     final edgeAttached =
         settings.hasFlag('floatingEditor') &&
         MediaQuery.sizeOf(context).width >= LeapBreakpoints.expanded;
     final showToolbar =
+        !isYing &&
         !isStudyToolbar &&
         (((fullScreen || settings.toolbarRows > 1) && pos == .inline ||
                 pos == .top) &&
             !isMobile) &&
         inputState.hideUi == .visible;
     final shareToolbarAndZoomEdge =
+        !isYing &&
         !isStudyToolbar &&
         !isMobile &&
         inputState.hideUi == .visible &&
         _toolbarAndZoomShareVerticalEdge(settings);
     final combineTopToolbarAndZoom = showToolbar && shareToolbarAndZoomEdge;
     final combineBottomToolbarAndZoom =
-        !isStudyToolbar && pos == .bottom && shareToolbarAndZoomEdge;
+        !isYing && !isStudyToolbar && pos == .bottom && shareToolbarAndZoomEdge;
     final quickStripAlignment =
         settings.zoomPosition == .topLeft ||
             settings.propertyPosition == .topLeft
@@ -1497,7 +1718,8 @@ class _MainBody extends StatelessWidget {
                     edgeAttached: edgeAttached,
                   )
                 : toolbar,
-          if (!isStudyToolbar &&
+          if (!isYing &&
+              !isStudyToolbar &&
               optPos == .top &&
               inputState.hideUi == .visible)
             ToolbarView(edgeAttached: edgeAttached),
@@ -1510,9 +1732,12 @@ class _MainBody extends StatelessWidget {
                   isMobile,
                   inputState,
                   hideZoomTools:
-                      combineTopToolbarAndZoom || combineBottomToolbarAndZoom,
+                      isYing ||
+                      combineTopToolbarAndZoom ||
+                      combineBottomToolbarAndZoom,
                 ),
-                if (documentLoaded &&
+                if (!isYing &&
+                    documentLoaded &&
                     !isStudyToolbar &&
                     inputState.hideUi == .visible)
                   Align(
@@ -1522,26 +1747,29 @@ class _MainBody extends StatelessWidget {
                       child: SaberQuickStrip(),
                     ),
                   ),
-                Align(
-                  alignment: switch (settings.propertyPosition) {
-                    .topRight => Alignment.topRight,
-                    .topLeft => Alignment.topLeft,
-                    .bottomRight => Alignment.bottomRight,
-                    .bottomLeft => Alignment.bottomLeft,
-                  },
-                  child: PropertyView(
-                    position: settings.propertyPosition,
-                    edgeAttached: edgeAttached,
+                if (!isYing || isStudyToolbar)
+                  Align(
+                    alignment: switch (settings.propertyPosition) {
+                      .topRight => Alignment.topRight,
+                      .topLeft => Alignment.topLeft,
+                      .bottomRight => Alignment.bottomRight,
+                      .bottomLeft => Alignment.bottomLeft,
+                    },
+                    child: PropertyView(
+                      position: settings.propertyPosition,
+                      edgeAttached: edgeAttached,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
-          if (!isStudyToolbar &&
+          if (!isYing &&
+              !isStudyToolbar &&
               optPos == .bottom &&
               inputState.hideUi == .visible)
             ToolbarView(edgeAttached: edgeAttached),
-          if (!isStudyToolbar &&
+          if (!isYing &&
+              !isStudyToolbar &&
               (isMobile || pos == .bottom) &&
               inputState.hideUi == .visible)
             combineBottomToolbarAndZoom

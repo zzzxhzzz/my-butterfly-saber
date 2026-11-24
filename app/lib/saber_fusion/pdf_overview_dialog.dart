@@ -14,6 +14,7 @@ import 'pdf_canvas_reflow_service.dart';
 import 'pdf_reading_models.dart';
 import 'pdf_study_service.dart';
 import 'study_state.dart';
+import 'ying_pdf_theme.dart';
 
 Future<void> showPdfOverviewDialog(BuildContext context) async {
   final docBloc = context.read<DocumentBloc>();
@@ -483,6 +484,11 @@ class _PdfOverviewDialogState extends State<PdfOverviewDialog> {
             final t = _applyCropPreview ? pdfCrop.top : 0.0;
             final b = _applyCropPreview ? pdfCrop.bottom : 0.0;
 
+            final isYing =
+                maybeStudyModeCubit(context)?.state.yingPdfStyle == true;
+            final highlightColor = isYing
+                ? YingPdfPalette.of(context).accentBerry
+                : const Color(0xFFD32F2F);
             return Tooltip(
               message: '第 $pageNum 页',
               child: InkWell(
@@ -498,14 +504,14 @@ class _PdfOverviewDialogState extends State<PdfOverviewDialog> {
                           borderRadius: BorderRadius.circular(3),
                           border: Border.all(
                             color: isCurrent
-                                ? const Color(0xFFD32F2F)
+                                ? highlightColor
                                 : ColorScheme.of(context).outlineVariant,
                             width: isCurrent ? 2.5 : 1.0,
                           ),
                           boxShadow: [
                             BoxShadow(
                               color: isCurrent
-                                  ? const Color(0x33D32F2F)
+                                  ? highlightColor.withValues(alpha: 0.24)
                                   : const Color(0x1F000000),
                               blurRadius: isCurrent ? 10 : 5,
                               offset: const Offset(0, 2),
@@ -543,7 +549,12 @@ class _PdfOverviewDialogState extends State<PdfOverviewDialog> {
                         fontWeight:
                             isCurrent ? FontWeight.bold : FontWeight.normal,
                         color: isCurrent
-                            ? const Color(0xFFD32F2F)
+                            ? (maybeStudyModeCubit(context)
+                                        ?.state
+                                        .yingPdfStyle ==
+                                    true
+                                ? YingPdfPalette.of(context).accentBerry
+                                : const Color(0xFFD32F2F))
                             : ColorScheme.of(context).onSurface,
                       ),
                     ),

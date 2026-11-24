@@ -162,6 +162,20 @@ class SaberQuickStrip extends StatelessWidget {
                           studyCubit.toggleStudyPanel(StudyPanelTab.crop),
                     ),
                     IconButton(
+                      tooltip: '切换 YingPDF 暖纸风格与 OCR 阅读器',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      padding: EdgeInsets.zero,
+                      icon: const PhosphorIcon(
+                        PhosphorIconsLight.textT,
+                        size: 18,
+                      ),
+                      onPressed: () => studyCubit.setYingPdfStyle(true),
+                    ),
+                    IconButton(
                       tooltip: '教材目录 / 搜题 / 错题本',
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints.tightFor(

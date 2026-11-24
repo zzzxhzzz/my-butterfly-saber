@@ -10,6 +10,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import 'ocr_models.dart';
+
 class PdfPagePlacement {
   final String pdfSource;
   final int pdfPageIndex;
@@ -154,6 +156,7 @@ class PdfStudyService {
     String query, {
     required bool Function() isCancelled,
     void Function(int current, int total)? onProgress,
+    Map<int, OcrPageResult>? ocrPages,
   }) async {
     final needle = query.trim().toLowerCase();
     if (needle.isEmpty) return const [];
@@ -165,13 +168,13 @@ class PdfStudyService {
     for (var i = 0; i < pages.length; i++) {
       if (isCancelled()) break;
       onProgress?.call(i + 1, pages.length);
+      var pageHits = 0;
       try {
         final rawText = await pages[i].loadText();
         final fullText = rawText?.fullText ?? '';
         if (fullText.isNotEmpty) {
           final lower = fullText.toLowerCase();
           var searchFrom = 0;
-          var pageHits = 0;
           while (pageHits < 2) {
             final matchIndex = lower.indexOf(needle, searchFrom);
             if (matchIndex < 0) break;
@@ -194,6 +197,33 @@ class PdfStudyService {
           }
         }
       } catch (_) {}
+      if (pageHits == 0 && ocrPages != null) {
+        final ocrText = ocrPages[i]?.fullText ?? '';
+        if (ocrText.isNotEmpty) {
+          final lowerOcr = ocrText.toLowerCase();
+          var searchFrom = 0;
+          while (pageHits < 2) {
+            final matchIndex = lowerOcr.indexOf(needle, searchFrom);
+            if (matchIndex < 0) break;
+            final start = max(0, matchIndex - 24);
+            final end = min(ocrText.length, matchIndex + needle.length + 48);
+            final rawSnippet = ocrText
+                .substring(start, end)
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim();
+            final prefix = start > 0 ? '...' : '';
+            final suffix = end < ocrText.length ? '...' : '';
+            hits.add(
+              PdfSearchHit(
+                pdfPageIndex: i,
+                snippet: '[OCR] $prefix$rawSnippet$suffix',
+              ),
+            );
+            pageHits++;
+            searchFrom = matchIndex + needle.length;
+          }
+        }
+      }
       if (i % 4 == 3) {
         await Future<void>.delayed(Duration.zero);
       }

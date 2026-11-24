@@ -36,9 +36,13 @@ class _AiTutorTabState extends State<AiTutorTab> {
     final studyCubit = context.read<StudyModeCubit>();
     final snip = studyCubit.state.pendingSnip;
     if (snip == null || _loading) return;
-    final prompt = (presetPrompt ?? _promptController.text).trim();
-    final effectivePrompt =
-        prompt.isEmpty ? AiTutorService.promptPresets.first.$2 : prompt;
+    final rawPrompt = (presetPrompt ?? _promptController.text).trim();
+    final basePrompt =
+        rawPrompt.isEmpty ? AiTutorService.promptPresets.first.$2 : rawPrompt;
+    final ocrText = snip.ocrText?.trim() ?? '';
+    final effectivePrompt = ocrText.isEmpty
+        ? basePrompt
+        : '选中的文字内容：\n$ocrText\n\n请求：$basePrompt';
     if (presetPrompt != null) {
       _promptController.text = presetPrompt;
     }
@@ -100,6 +104,7 @@ class _AiTutorTabState extends State<AiTutorTab> {
         layer: state.currentLayer,
       ),
     );
+    context.read<StudyModeCubit>().incrementCanvasExcerptCount();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已将 AI 讲解贴到试卷旁（可拖动排版）')),
     );
@@ -109,7 +114,7 @@ class _AiTutorTabState extends State<AiTutorTab> {
     final snip = context.read<StudyModeCubit>().state.pendingSnip;
     if (snip == null) return;
     final subjectCtrl = TextEditingController(text: '数学');
-    final noteCtrl = TextEditingController();
+    final noteCtrl = TextEditingController(text: snip.ocrText ?? '');
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -346,19 +351,37 @@ class _AiTutorTabState extends State<AiTutorTab> {
                       ),
                     )
                   else ...[
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 160),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: colorScheme.outlineVariant),
-                        borderRadius: BorderRadius.circular(8),
+                    if (snip.pngBytes.isNotEmpty)
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 160),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: colorScheme.outlineVariant),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.memory(
+                          snip.pngBytes,
+                          fit: BoxFit.contain,
+                        ),
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Image.memory(
-                        snip.pngBytes,
-                        fit: BoxFit.contain,
+                    if ((snip.ocrText ?? '').trim().isNotEmpty) ...[
+                      if (snip.pngBytes.isNotEmpty) const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHigh,
+                          border: Border.all(color: colorScheme.outlineVariant),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          snip.ocrText!.trim(),
+                          maxLines: 5,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextTheme.of(context).bodySmall,
+                        ),
                       ),
-                    ),
+                    ],
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 6,

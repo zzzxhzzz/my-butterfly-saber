@@ -1010,6 +1010,14 @@ class MainPopupMenu extends StatelessWidget {
                                     onPressed: () => showLanSyncDialog(context),
                                     child: const Text('双端局域网同步账号'),
                                   ),
+                                MenuItemButton(
+                                  leadingIcon: const PhosphorIcon(
+                                    PhosphorIconsLight.textT,
+                                  ),
+                                  onPressed: () =>
+                                      studyCubit.setYingPdfStyle(true),
+                                  child: const Text('切换 YingPDF 阅读器界面 (OCR)'),
+                                ),
                               ],
                               child: const Text('学习融合工具 (Saber+AI)'),
                             ),

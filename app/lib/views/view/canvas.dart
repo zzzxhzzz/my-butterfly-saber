@@ -139,6 +139,24 @@ class _ViewportCanvasState extends State<_ViewportCanvas>
                 isComplex: true,
               ),
             ),
+            if (maybeOcrCubit(context) case final ocrCubit?)
+              BlocBuilder<OcrCubit, OcrState>(
+                bloc: ocrCubit,
+                builder: (context, ocrState) => IgnorePointer(
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: OcrTextLayerPainter(
+                      page: state.page,
+                      transform: visibleTransform,
+                      pdfCrop: pdfDisplayOptions,
+                      ocrState: ocrState,
+                      selectionColor: YingPdfPalette.of(
+                        context,
+                      ).selectionHighlight,
+                    ),
+                  ),
+                ),
+              ),
             BlocBuilder<ToolCubit, ToolRuntimeState>(
               buildWhen: (previous, current) =>
                   previous.foregrounds != current.foregrounds ||

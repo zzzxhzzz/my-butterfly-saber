@@ -10,6 +10,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import 'ai_tutor_tab.dart';
 import 'mistake_bank_tab.dart';
+import 'ocr_cubit.dart';
 import 'pdf_crop_tab.dart';
 import 'pdf_overview_dialog.dart';
 import 'pdf_study_service.dart';
@@ -153,6 +154,7 @@ class _PdfStudyPanelState extends State<PdfStudyPanel> {
       summary.source,
       query,
       isCancelled: () => !mounted || gen != _searchGeneration,
+      ocrPages: maybeOcrCubit(context)?.state.pages,
       onProgress: (current, total) {
         if (!mounted || gen != _searchGeneration) return;
         setState(() {

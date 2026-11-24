@@ -29,7 +29,9 @@ import 'package:talker_flutter/talker_flutter.dart';
 import 'cubits/settings.dart';
 import 'saber_fusion/lan_sync_cubit.dart';
 import 'saber_fusion/multi_pdf_window_cubit.dart';
+import 'saber_fusion/ocr_cubit.dart';
 import 'saber_fusion/study_state.dart';
+import 'saber_fusion/ying_pdf_theme.dart';
 import 'embed/embedding.dart';
 import 'settings/home.dart';
 import 'setup.dart' if (dart.library.js_interop) 'setup_web.dart';
@@ -359,7 +361,10 @@ class ButterflyApp extends StatelessWidget {
             create: (context) => WindowCubit(fullScreen: fullScreen),
           ),
           BlocProvider(
-            create: (context) => StudyModeCubit()..load(),
+            create: (context) => StudyModeCubit(defaultYingPdfStyle: true)..load(),
+          ),
+          BlocProvider(
+            create: (context) => OcrCubit()..load(),
           ),
           BlocProvider(
             create: (context) => LanSyncCubit()..load(),
@@ -441,22 +446,39 @@ class ButterflyApp extends StatelessWidget {
         },
         supportedLocales: getLocales(),
         themeMode: state.theme,
-        theme: getThemeData(
-          state.design,
-          false,
-          state.density.toFlutter(),
-          lightDynamic,
-          state.highContrast,
+        theme: _buildThemeForStyle(
+          context,
+          state: state,
+          dark: false,
+          dynamicScheme: lightDynamic,
         ),
-        darkTheme: getThemeData(
-          state.design,
-          true,
-          state.density.toFlutter(),
-          darkDynamic,
-          state.highContrast,
+        darkTheme: _buildThemeForStyle(
+          context,
+          state: state,
+          dark: true,
+          dynamicScheme: darkDynamic,
         ),
       ),
     );
+  }
+
+  ThemeData _buildThemeForStyle(
+    BuildContext context, {
+    required ButterflySettings state,
+    required bool dark,
+    required ColorScheme? dynamicScheme,
+  }) {
+    final base = getThemeData(
+      state.design,
+      dark,
+      state.density.toFlutter(),
+      dynamicScheme,
+      state.highContrast,
+    );
+    final yingStyle = context.select<StudyModeCubit, bool>(
+      (cubit) => cubit.state.yingPdfStyle,
+    );
+    return yingStyle ? applyYingPdfTheme(base, dark: dark) : base;
   }
 }
 

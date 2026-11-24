@@ -28,6 +28,16 @@ enum StudyPanelTab {
   };
 }
 
+enum StudyWorkspaceMode {
+  reading,
+  canvas;
+
+  String get label => switch (this) {
+    StudyWorkspaceMode.reading => '阅读',
+    StudyWorkspaceMode.canvas => '画布',
+  };
+}
+
 @immutable
 class AiTutorConfig {
   static const defaultBaseUrl = 'https://api.openai.com/v1';
@@ -72,12 +82,14 @@ class SnippedRegion {
   final Rect canvasRect;
   final int? pdfPageNumber;
   final String documentName;
+  final String? ocrText;
 
   const SnippedRegion({
     required this.pngBytes,
     required this.canvasRect,
     this.pdfPageNumber,
     this.documentName = '',
+    this.ocrText,
   });
 }
 
@@ -92,6 +104,10 @@ class StudyModeState {
   final SnippedRegion? pendingSnip;
   final AiTutorConfig aiConfig;
   final PdfMarginCropConfig pdfCrop;
+  final bool yingPdfStyle;
+  final StudyWorkspaceMode workspaceMode;
+  final bool inspectorOpen;
+  final int canvasExcerptCount;
 
   const StudyModeState({
     this.colorMode = CanvasColorFilterMode.normal,
@@ -103,6 +119,10 @@ class StudyModeState {
     this.pendingSnip,
     this.aiConfig = const AiTutorConfig(),
     this.pdfCrop = const PdfMarginCropConfig(),
+    this.yingPdfStyle = false,
+    this.workspaceMode = StudyWorkspaceMode.reading,
+    this.inspectorOpen = true,
+    this.canvasExcerptCount = 0,
   });
 
   static const _unset = Object();
@@ -117,6 +137,10 @@ class StudyModeState {
     Object? pendingSnip = _unset,
     AiTutorConfig? aiConfig,
     PdfMarginCropConfig? pdfCrop,
+    bool? yingPdfStyle,
+    StudyWorkspaceMode? workspaceMode,
+    bool? inspectorOpen,
+    int? canvasExcerptCount,
   }) => StudyModeState(
     colorMode: colorMode ?? this.colorMode,
     perfectHighlighter: perfectHighlighter ?? this.perfectHighlighter,
@@ -129,6 +153,10 @@ class StudyModeState {
         : pendingSnip as SnippedRegion?,
     aiConfig: aiConfig ?? this.aiConfig,
     pdfCrop: pdfCrop ?? this.pdfCrop,
+    yingPdfStyle: yingPdfStyle ?? this.yingPdfStyle,
+    workspaceMode: workspaceMode ?? this.workspaceMode,
+    inspectorOpen: inspectorOpen ?? this.inspectorOpen,
+    canvasExcerptCount: canvasExcerptCount ?? this.canvasExcerptCount,
   );
 }
 
@@ -136,6 +164,8 @@ class StudyModeCubit extends Cubit<StudyModeState> {
   static const _prefColorMode = 'saber_fusion.color_mode';
   static const _prefPerfectHighlighter = 'saber_fusion.perfect_highlighter';
   static const _prefStudyToolbar = 'saber_fusion.study_toolbar';
+  static const _prefYingPdfStyle = 'saber_fusion.ying_pdf_style_v1';
+  static const _prefInspectorOpen = 'saber_fusion.inspector_open_v1';
   static const _prefAiBaseUrl = 'saber_fusion.ai_base_url';
   static const _prefAiModel = 'saber_fusion.ai_model';
   static const _prefAiPrompt = 'saber_fusion.ai_system_prompt';
@@ -145,9 +175,11 @@ class StudyModeCubit extends Cubit<StudyModeState> {
   final FlutterSecureStorage _secureStorage;
   bool _loaded = false;
 
-  StudyModeCubit({FlutterSecureStorage? secureStorage})
-    : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
-      super(const StudyModeState());
+  StudyModeCubit({
+    FlutterSecureStorage? secureStorage,
+    bool defaultYingPdfStyle = false,
+  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       super(StudyModeState(yingPdfStyle: defaultYingPdfStyle));
 
   Future<void> load() async {
     if (_loaded) return;
@@ -161,6 +193,9 @@ class StudyModeCubit extends Cubit<StudyModeState> {
       );
       final perfectHighlighter = prefs.getBool(_prefPerfectHighlighter) ?? true;
       final studyToolbarMode = prefs.getBool(_prefStudyToolbar) ?? false;
+      final yingPdfStyle =
+          prefs.getBool(_prefYingPdfStyle) ?? state.yingPdfStyle;
+      final inspectorOpen = prefs.getBool(_prefInspectorOpen) ?? true;
       final baseUrl = prefs.getString(_prefAiBaseUrl) ?? AiTutorConfig.defaultBaseUrl;
       final model = prefs.getString(_prefAiModel) ?? AiTutorConfig.defaultModel;
       final prompt =
@@ -185,6 +220,8 @@ class StudyModeCubit extends Cubit<StudyModeState> {
             colorMode: colorMode,
             perfectHighlighter: perfectHighlighter,
             studyToolbarMode: studyToolbarMode,
+            yingPdfStyle: yingPdfStyle,
+            inspectorOpen: inspectorOpen,
             pdfCrop: pdfCrop,
             aiConfig: AiTutorConfig(
               baseUrl: baseUrl,
@@ -313,6 +350,46 @@ class StudyModeCubit extends Cubit<StudyModeState> {
     updatePdfCrop(
       PdfMarginCropConfig(layoutMode: state.pdfCrop.layoutMode),
     );
+  }
+
+  void setYingPdfStyle(bool enabled) {
+    if (state.yingPdfStyle == enabled) return;
+    emit(state.copyWith(yingPdfStyle: enabled));
+    _savePref((prefs) => prefs.setBool(_prefYingPdfStyle, enabled));
+  }
+
+  void toggleYingPdfStyle() => setYingPdfStyle(!state.yingPdfStyle);
+
+  void setWorkspaceMode(StudyWorkspaceMode mode) {
+    if (state.workspaceMode == mode) return;
+    emit(
+      state.copyWith(
+        workspaceMode: mode,
+        studyToolbarMode: mode == StudyWorkspaceMode.canvas,
+      ),
+    );
+  }
+
+  void setInspectorOpen(bool open) {
+    if (state.inspectorOpen == open) return;
+    emit(state.copyWith(inspectorOpen: open));
+    _savePref((prefs) => prefs.setBool(_prefInspectorOpen, open));
+  }
+
+  void toggleInspectorOpen() => setInspectorOpen(!state.inspectorOpen);
+
+  void incrementCanvasExcerptCount([int delta = 1]) {
+    emit(
+      state.copyWith(
+        canvasExcerptCount: (state.canvasExcerptCount + delta).clamp(0, 9999),
+      ),
+    );
+  }
+
+  void syncCanvasExcerptCount(int count) {
+    final safe = count.clamp(0, 9999);
+    if (state.canvasExcerptCount == safe) return;
+    emit(state.copyWith(canvasExcerptCount: safe));
   }
 }
 

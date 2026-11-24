@@ -103,12 +103,24 @@ class AiTutorService {
     }
 
     final uri = _buildCompletionsUri(config.baseUrl);
-    final b64 = base64Encode(imageBytes);
     final headers = <String, String>{
       'Content-Type': 'application/json',
       if (config.apiKey.trim().isNotEmpty)
         'Authorization': 'Bearer ${config.apiKey.trim()}',
     };
+    final contentParts = <Map<String, dynamic>>[
+      {
+        'type': 'text',
+        'text': prompt.trim().isEmpty
+            ? promptPresets.first.$2
+            : prompt.trim(),
+      },
+      if (imageBytes.isNotEmpty)
+        {
+          'type': 'image_url',
+          'image_url': {'url': 'data:image/png;base64,${base64Encode(imageBytes)}'},
+        },
+    ];
     final body = jsonEncode({
       'model': config.model.trim(),
       'messages': [
@@ -116,18 +128,7 @@ class AiTutorService {
           {'role': 'system', 'content': config.systemPrompt.trim()},
         {
           'role': 'user',
-          'content': [
-            {
-              'type': 'text',
-              'text': prompt.trim().isEmpty
-                  ? promptPresets.first.$2
-                  : prompt.trim(),
-            },
-            {
-              'type': 'image_url',
-              'image_url': {'url': 'data:image/png;base64,$b64'},
-            },
-          ],
+          'content': contentParts,
         },
       ],
       'temperature': 0.3,

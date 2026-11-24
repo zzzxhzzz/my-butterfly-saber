@@ -44,3 +44,11 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+add_library(win_ocr_bridge SHARED
+  "win_ocr_bridge.cpp"
+)
+target_compile_features(win_ocr_bridge PUBLIC cxx_std_17)
+target_compile_options(win_ocr_bridge PRIVATE /EHsc /bigobj /utf-8)
+target_compile_definitions(win_ocr_bridge PRIVATE "NOMINMAX")
+target_link_libraries(win_ocr_bridge PRIVATE "windowsapp.lib")
